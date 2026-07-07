@@ -1,1 +1,0 @@
-# gelpiyo-territory
