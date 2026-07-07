@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <title>ゲルぴよ陣取りゲーム</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="container">
+    <header class="header">
+      <h1>ゲルぴよ陣取りゲーム</h1>
+      <p class="subtitle">企画案ベースの試作版改</p>
+    </header>
+
+    <section class="panel" aria-label="ゲーム情報">
+      <div class="status-row">
+        <div class="turn-box">
+          <span class="label">現在の手番</span>
+          <strong id="current-player">-</strong>
+        </div>
+        <div class="score-box">
+          <span class="label">盤上の駒数</span>
+          <strong>先攻 <span id="black-score">1</span> / 後攻 <span id="white-score">1</span></strong>
+        </div>
+        <div class="turn-box">
+          <span class="label">対戦設定</span>
+          <strong id="mode-display">未開始</strong>
+        </div>
+      </div>
+
+      <div class="status-row compact">
+        <div class="turn-box"><span class="label">盤面サイズ</span><strong id="board-size-display">-</strong></div>
+        <div class="turn-box"><span class="label">AIの強さ</span><strong id="ai-level-display">-</strong></div>
+        <div class="turn-box"><span class="label">候補ガイド</span><strong id="guide-display">-</strong></div>
+        <div class="turn-box"><span class="label">連続パス</span><strong id="pass-display">0</strong></div>
+      </div>
+
+      <div class="status-row compact">
+        <div class="turn-box territory-box"><span class="label">陣取り数（3×3四隅成立）</span><strong>先攻 <span id="black-territory">0</span> / 後攻 <span id="white-territory">0</span></strong></div>
+      </div>
+
+      <div class="message" id="message">ゲーム設定を選んで開始してください。</div>
+      <div class="secondary-message" id="selection-status">1手で2個の駒を置きます。</div>
+      <div class="controls">
+        <button id="open-setup-button" type="button">設定し直す</button>
+        <button id="reset-button" type="button">同じ設定で最初から</button>
+        <button id="clear-selection-button" type="button">選択を取り消す</button>
+      </div>
+    </section>
+
+    <section class="board-wrap" aria-label="盤面">
+      <div id="board" class="board" role="grid" aria-label="ゲルぴよ盤"></div>
+    </section>
+
+    <section class="rules">
+      <h2>陣取りゲームルール</h2>
+      <ul>
+        <li>盤面サイズは 9 × 9、11 × 11、13 × 13 から選べます。</li>
+        <li>初期配置は中心 3 × 3 の対角上に、先攻と後攻の駒を 1 個ずつ置いた状態です。</li>
+        <li>先攻の駒は赤色、後攻の駒は青色で表しています。</li>
+        <li>1手で同じ行または列に駒を2個置きます。</li>
+        <li>2つの新しい駒は、消す相手駒の上下または左右にぴったり隣接して置く必要があります。</li>
+        <li>「自分 / 相手 / 自分」が一直線に連続した3マスになるときだけ、中央の相手駒を消せます。</li>
+        <li>相手駒が「相手 / 空白 / 相手」と1つ飛びで並んでいる空白には、自分の駒を置けません。</li>
+        <li>駒を2個置いた結果、同時に複数の「自分 / 相手 / 自分」が成立した相手駒をまとめて消します。</li>
+        <li>3 × 3の四隅を同じ色で押さえて陣取りが成立したとき、その3 × 3内に残っている相手駒も消えます。</li>
+        <li>一度相手の陣になった3 × 3の中には、新たに自分の駒を置けません。</li>
+        <li>2つの新しい駒を置く手が存在しない場合は自動パスとなります。任意でパスすることはできません。</li>
+        <li>相手の自動パスの直後にこちらも自動パスなら、またはその逆でも、その時点で対戦終了です。</li>
+      </ul>
+    </section>
+  </main>
+
+  <div id="setup-overlay" class="overlay" aria-modal="true" role="dialog" aria-labelledby="setup-title">
+    <div class="modal-card setup-card">
+      <h2 id="setup-title">ゲーム設定</h2>
+      <p class="setup-text">あなたの手番・対戦相手・AIの強さ・盤面サイズ・候補ガイドを選んでください。</p>
+
+      <form id="setup-form" class="setup-form">
+        <fieldset>
+          <legend>あなたの手番</legend>
+          <label class="option-card"><input type="radio" name="playerColor" value="black" checked /><span>先攻</span></label>
+          <label class="option-card"><input type="radio" name="playerColor" value="white" /><span>後攻</span></label>
+        </fieldset>
+
+        <fieldset>
+          <legend>対戦相手</legend>
+          <label class="option-card"><input type="radio" name="opponent" value="human" /><span>人間と対戦</span></label>
+          <label class="option-card"><input type="radio" name="opponent" value="ai" checked /><span>AIと対戦</span></label>
+        </fieldset>
+
+        <fieldset id="ai-level-fieldset">
+          <legend>AIの強さ</legend>
+          <label class="option-card"><input type="radio" name="aiLevel" value="easy" /><span>弱い</span></label>
+          <label class="option-card"><input type="radio" name="aiLevel" value="normal" checked /><span>普通</span></label>
+          <label class="option-card"><input type="radio" name="aiLevel" value="hard" /><span>強い</span></label>
+        </fieldset>
+
+        <fieldset>
+          <legend>盤面サイズ</legend>
+          <label class="option-card"><input type="radio" name="boardSize" value="9" /><span>9 × 9</span></label>
+          <label class="option-card"><input type="radio" name="boardSize" value="11" checked /><span>11 × 11</span></label>
+          <label class="option-card"><input type="radio" name="boardSize" value="13" /><span>13 × 13</span></label>
+        </fieldset>
+
+        <fieldset>
+          <legend>置ける場所のガイド表示</legend>
+          <label class="option-card"><input type="radio" name="showGuide" value="on" checked /><span>ON（候補を表示する）</span></label>
+          <label class="option-card"><input type="radio" name="showGuide" value="off" /><span>OFF（候補を表示しない）</span></label>
+        </fieldset>
+
+        <div class="setup-actions"><button type="submit">ゲーム開始</button></div>
+      </form>
+    </div>
+  </div>
+
+  <div id="result-overlay" class="overlay hidden" aria-modal="true" role="dialog" aria-labelledby="result-title">
+    <div class="modal-card result-card">
+      <h2 id="result-title">対局結果</h2>
+      <p id="result-summary" class="result-summary">ゲーム終了</p>
+      <div id="result-detail" class="result-detail">-</div>
+      <div class="result-actions">
+        <button id="result-restart-button" type="button">同じ設定で再戦</button>
+        <button id="result-setup-button" type="button">設定を変更する</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
