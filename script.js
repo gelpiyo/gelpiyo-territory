@@ -1,11 +1,15 @@
 const EMPTY = 0;
 const FIRST = 1;
 const SECOND = -1;
+const BLOCKED = 2;
+const GRAY = 3;
+const EVENT_BOARD_SIZE = 'event';
 const SUPPORTED_BOARD_SIZES = [9, 11, 13];
 const SUPPORTED_AI_LEVELS = ['easy', 'normal', 'hard'];
 const PIECE_IMAGE = {
     [FIRST]: 'images/unit_red_piece.png',
-    [SECOND]: 'images/unit_blue_piece.png'
+    [SECOND]: 'images/unit_blue_piece.png',
+    [GRAY]: 'images/unit_gray_piece.png'
 };
 
 const boardElement = document.getElementById('board');
@@ -35,6 +39,8 @@ const resultSetupButton = document.getElementById('result-setup-button');
 
 let board = [];
 let boardSize = 11;
+let boardRows = 11;
+let boardCols = 11;
 let currentPlayer = FIRST;
 let gameOver = false;
 let aiThinking = false;
@@ -67,9 +73,10 @@ function isHumanTurn() {
     return !isAiMode() || currentPlayer === gameConfig.humanColor;
 }
 function inBounds(row, col) {
-    return row >= 0 && row < boardSize && col >= 0 && col < boardSize;
+    return row >= 0 && row < boardRows && col >= 0 && col < boardCols;
 }
 function normalizeBoardSize(value) {
+    if (value === EVENT_BOARD_SIZE) return EVENT_BOARD_SIZE;
     const n = Number(value);
     return SUPPORTED_BOARD_SIZES.includes(n) ? n : 11;
 }
@@ -93,21 +100,59 @@ function getConfigLabel() {
     return !isAiMode() ? '人間 vs 人間' : `AI対戦 / あなた: ${playerName(gameConfig.humanColor)} / ${aiLevelLabel(gameConfig.aiLevel)}`;
 }
 function applyBoardLayout() {
-    boardElement.style.setProperty('--board-size', String(boardSize));
-    boardElement.setAttribute('aria-label', `${boardSize}x${boardSize} ゲルぴよ盤`);
-    boardSizeDisplayElement.textContent = `${boardSize} × ${boardSize}`;
+    boardElement.style.setProperty('--board-size', String(Math.max(boardRows, boardCols)));
+    boardElement.style.setProperty('--board-cols', String(boardCols));
+    boardElement.style.setProperty('--board-rows', String(boardRows));
+    boardElement.classList.toggle('event-map', gameConfig.boardSize === EVENT_BOARD_SIZE);
+    boardElement.setAttribute('aria-label', `${boardCols}x${boardRows} ゲルぴよ盤`);
+    boardSizeDisplayElement.textContent = gameConfig.boardSize === EVENT_BOARD_SIZE ? `イベント ${boardCols} × ${boardRows}` : `${boardSize} × ${boardSize}`;
     aiLevelDisplayElement.textContent = isAiMode() ? aiLevelLabel(gameConfig.aiLevel) : '対象外';
     guideDisplayElement.textContent = guideLabel(gameConfig.showGuide);
     passDisplayElement.textContent = consecutivePasses;
 }
 function createInitialBoard() {
+    boardRows = boardSize;
+    boardCols = boardSize;
     const newBoard = Array.from({
-        length: boardSize
-    }, () => Array(boardSize).fill(EMPTY));
+        length: boardRows
+    }, () => Array(boardCols).fill(EMPTY));
     const center = Math.floor(boardSize / 2);
     newBoard[center - 1][center - 1] = FIRST;
     newBoard[center + 1][center + 1] = SECOND;
     return newBoard;
+}
+
+async function loadEventMap() {
+    if (window.EVENT_MAP_DATA) {
+        return parseMapData(window.EVENT_MAP_DATA);
+    }
+
+    const embeddedMap = document.getElementById('event-map-data');
+    if (embeddedMap && embeddedMap.textContent.trim()) {
+        return parseMapData(JSON.parse(embeddedMap.textContent));
+    }
+
+    throw new Error('map.js が読み込まれていません。index.html と同じフォルダに map.js を配置してください。');
+}
+function parseMapData(data) {
+    const rawRows = Array.isArray(data) ? data : data.cells;
+    if (!Array.isArray(rawRows) || rawRows.length === 0) throw new Error('map.js が空、または cells がありません。');
+    const expectedCols = rawRows[0].length;
+    if (!expectedCols) throw new Error('map.js の列数が0です。');
+    const parsed = rawRows.map((rowData, rowIndex) => {
+        if (!Array.isArray(rowData)) throw new Error(`${rowIndex + 1}行目が配列ではありません。`);
+        if (rowData.length !== expectedCols) throw new Error(`${rowIndex + 1}行目の列数が他の行と異なります。`);
+        return rowData.map(value => {
+            const code = String(value || '').charAt(0).toUpperCase();
+            if (code === 'W') return EMPTY;
+            if (code === 'X') return BLOCKED;
+            if (code === 'R') return FIRST;
+            if (code === 'B') return SECOND;
+            if (code === 'G') return GRAY;
+            throw new Error(`map.js に不正なマス種別があります: ${value}`);
+        });
+    });
+    return parsed;
 }
 function countPieces(sourceBoard=board) {
     let first = 0
@@ -129,8 +174,8 @@ function getTerritoryRegions(sourceBoard=board) {
       , secondRegions = [];
     const cellsForFirst = new Set()
       , cellsForSecond = new Set();
-    for (let row = 0; row <= boardSize - 3; row += 1)
-        for (let col = 0; col <= boardSize - 3; col += 1) {
+    for (let row = 0; row <= boardRows - 3; row += 1)
+        for (let col = 0; col <= boardCols - 3; col += 1) {
             const corners = [sourceBoard[row][col], sourceBoard[row][col + 2], sourceBoard[row + 2][col], sourceBoard[row + 2][col + 2]];
             if (corners.every(v => v === FIRST)) {
                 firstRegions.push({
@@ -173,14 +218,14 @@ function purgeEnemyInsideTerritories(sourceBoard) {
     for (const region of territories.firstRegions)
         for (let r = region.row; r < region.row + 3; r += 1)
             for (let c = region.col; c < region.col + 3; c += 1)
-                if (nextBoard[r][c] === SECOND) {
+                if (nextBoard[r][c] === SECOND || nextBoard[r][c] === GRAY) {
                     nextBoard[r][c] = EMPTY;
                     removed += 1;
                 }
     for (const region of territories.secondRegions)
         for (let r = region.row; r < region.row + 3; r += 1)
             for (let c = region.col; c < region.col + 3; c += 1)
-                if (nextBoard[r][c] === FIRST) {
+                if (nextBoard[r][c] === FIRST || nextBoard[r][c] === GRAY) {
                     nextBoard[r][c] = EMPTY;
                     removed += 1;
                 }
@@ -198,8 +243,8 @@ function isBlockedGapForPlayer(sourceBoard, row, col, player) {
 }
 function collectCapturesOnBoard(sourceBoard, player) {
     const capturedKeys = new Set();
-    for (let row = 0; row < boardSize; row += 1)
-        for (let col = 0; col < boardSize; col += 1) {
+    for (let row = 0; row < boardRows; row += 1)
+        for (let col = 0; col < boardCols; col += 1) {
             if (sourceBoard[row][col] !== -player)
                 continue;
             const horizontal = inBounds(row, col - 1) && inBounds(row, col + 1) && sourceBoard[row][col - 1] === player && sourceBoard[row][col + 1] === player;
@@ -263,8 +308,8 @@ function getValidSecondPlacementsOnBoard(sourceBoard, player, firstCell) {
 }
 function getValidFirstPlacementsOnBoard(sourceBoard, player) {
     const map = new Map();
-    for (let row = 0; row < boardSize; row += 1)
-        for (let col = 0; col < boardSize; col += 1) {
+    for (let row = 0; row < boardRows; row += 1)
+        for (let col = 0; col < boardCols; col += 1) {
             if (sourceBoard[row][col] !== EMPTY)
                 continue;
             if (isInsideOpponentTerritory(sourceBoard, row, col, player))
@@ -365,7 +410,7 @@ function chooseAiMove(player) {
         }
         return bestMove;
     }
-    const depth = boardSize >= 13 ? 2 : 3;
+    const depth = Math.max(boardRows, boardCols) >= 13 ? 2 : 3;
     let bestMove = moves[0]
       , bestScore = -Infinity;
     for (const move of moves) {
@@ -389,36 +434,41 @@ function selectionToGuideSet() {
 }
 function renderBoard() {
     const guideSet = selectionToGuideSet();
-    const selectedSet = new Set(selectedCells.map( ([r,c]) => cellKey(r, c)));
+    const selectedSet = new Set(selectedCells.map(([r,c]) => cellKey(r, c)));
     const territories = getTerritoryRegions(board);
     boardElement.innerHTML = '';
-    for (let row = 0; row < boardSize; row += 1)
-        for (let col = 0; col < boardSize; col += 1) {
+    for (let row = 0; row < boardRows; row += 1)
+        for (let col = 0; col < boardCols; col += 1) {
             const button = document.createElement('button');
             button.type = 'button';
             button.className = 'cell';
             button.setAttribute('role', 'gridcell');
             button.setAttribute('aria-label', `${row + 1}行 ${col + 1}列`);
-            button.disabled = gameOver || aiThinking || (isAiMode() && !isHumanTurn());
-            if (button.disabled)
-                button.classList.add('disabled');
-            if (selectedSet.has(cellKey(row, col)))
-                button.classList.add('selected');
-            if (guideSet.has(cellKey(row, col)))
-                button.classList.add('guide');
-            if (selectedCells.length > 0 && guideSet.has(cellKey(row, col)))
-                button.classList.add('second-guide');
-            if (territories.cellsForFirst.has(cellKey(row, col)))
-                button.classList.add('territory-first');
-            if (territories.cellsForSecond.has(cellKey(row, col)))
-                button.classList.add('territory-second');
+            const cellValue = board[row][col];
+            const isBlockedCell = cellValue === BLOCKED;
+            button.disabled = gameOver || aiThinking || isBlockedCell || (isAiMode() && !isHumanTurn());
+            if (button.disabled) button.classList.add('disabled');
+            if (isBlockedCell) button.classList.add('blocked');
+            if (selectedSet.has(cellKey(row, col))) button.classList.add('selected');
+            if (!isBlockedCell && guideSet.has(cellKey(row, col))) button.classList.add('guide');
+            if (!isBlockedCell && selectedCells.length > 0 && guideSet.has(cellKey(row, col))) button.classList.add('second-guide');
+            if (territories.cellsForFirst.has(cellKey(row, col))) button.classList.add('territory-first');
+            if (territories.cellsForSecond.has(cellKey(row, col))) button.classList.add('territory-second');
             button.addEventListener('click', () => handleCellClick(row, col));
-            if (board[row][col] !== EMPTY) {
+            if (cellValue === FIRST || cellValue === SECOND) {
                 const wrap = document.createElement('div');
                 wrap.className = 'piece-image';
                 const img = document.createElement('img');
-                img.src = PIECE_IMAGE[board[row][col]];
-                img.alt = board[row][col] === FIRST ? '先攻の駒' : '後攻の駒';
+                img.src = PIECE_IMAGE[cellValue];
+                img.alt = cellValue === FIRST ? '先攻の駒' : '後攻の駒';
+                wrap.appendChild(img);
+                button.appendChild(wrap);
+            } else if (cellValue === GRAY) {
+                const wrap = document.createElement('div');
+                wrap.className = 'piece-image piece-gray-image';
+                const img = document.createElement('img');
+                img.src = PIECE_IMAGE[GRAY];
+                img.alt = '灰色駒';
                 wrap.appendChild(img);
                 button.appendChild(wrap);
             }
@@ -439,7 +489,7 @@ function applyMove(move) {
 function formatMoveMessage(actor, move) {
     const parts = [`${actor}が 2個置いて ${move.captured.length} 個の相手駒を消しました`];
     if (move.territoryCleared > 0)
-        parts.push(`陣内の相手駒 ${move.territoryCleared} 個も消えました`);
+        parts.push(`陣内の相手駒・灰色駒 ${move.territoryCleared} 個も消えました`);
     return parts.join(' / ') + '。';
 }
 function handleCellClick(row, col) {
@@ -532,7 +582,7 @@ function endGame() {
     updateUI(`ゲーム終了。${summary}！`);
     resultSummary.textContent = `${summary}！`;
     resultDetail.innerHTML = `
-    <div class="result-row"><span>盤面サイズ</span><strong>${boardSize} × ${boardSize}</strong></div>
+    <div class="result-row"><span>盤面サイズ</span><strong>${boardCols} × ${boardRows}</strong></div>
     <div class="result-row"><span>先攻の駒数</span><strong>${counts.first}</strong></div>
     <div class="result-row"><span>後攻の駒数</span><strong>${counts.second}</strong></div>
     <div class="result-row"><span>先攻の陣取り</span><strong>${territories.firstCount}</strong></div>
@@ -600,23 +650,37 @@ function openSetup() {
 function closeSetup() {
     setupOverlay.classList.add('hidden');
 }
-function startGameFromConfig() {
-    boardSize = normalizeBoardSize(gameConfig.boardSize);
-    gameConfig.aiLevel = normalizeAiLevel(gameConfig.aiLevel);
-    gameConfig.showGuide = Boolean(gameConfig.showGuide);
-    currentPlayer = FIRST;
-    board = createInitialBoard();
-    gameOver = false;
-    aiThinking = false;
-    consecutivePasses = 0;
-    selectedCells = [];
-    closeSetup();
-    resultOverlay.classList.add('hidden');
-    updateUI('ゲーム開始！ 駒はアップロード画像を使用しています。');
-    selectionStatusElement.textContent = '1手で2個の駒を選択してください。';
-    const result = resolveForcedPasses([]);
-    if (!result.ended)
-        scheduleAiTurn();
+async function startGameFromConfig() {
+    try {
+        gameConfig.aiLevel = normalizeAiLevel(gameConfig.aiLevel);
+        gameConfig.showGuide = Boolean(gameConfig.showGuide);
+        currentPlayer = FIRST;
+        gameOver = false;
+        aiThinking = false;
+        consecutivePasses = 0;
+        selectedCells = [];
+        if (gameConfig.boardSize === EVENT_BOARD_SIZE) {
+            board = await loadEventMap();
+            boardRows = board.length;
+            boardCols = board[0].length;
+            boardSize = Math.max(boardRows, boardCols);
+        } else {
+            boardSize = normalizeBoardSize(gameConfig.boardSize);
+            boardRows = boardSize;
+            boardCols = boardSize;
+            board = createInitialBoard();
+        }
+        closeSetup();
+        resultOverlay.classList.add('hidden');
+        updateUI(gameConfig.boardSize === EVENT_BOARD_SIZE ? 'イベントマップを読み込みました。' : 'ゲーム開始！ 駒はアップロード画像を使用しています。');
+        selectionStatusElement.textContent = '1手で2個の駒を選択してください。';
+        const result = resolveForcedPasses([]);
+        if (!result.ended) scheduleAiTurn();
+    } catch (error) {
+        console.error(error);
+        messageElement.textContent = error.message;
+        alert(error.message);
+    }
 }
 setupForm.addEventListener('submit', (event) => {
     event.preventDefault();
