@@ -36,7 +36,27 @@ const resultSummary = document.getElementById('result-summary');
 const resultDetail = document.getElementById('result-detail');
 const resultRestartButton = document.getElementById('result-restart-button');
 const resultSetupButton = document.getElementById('result-setup-button');
+const turnChip = document.getElementById('turn-chip');
+const passChip = document.getElementById('pass-chip');
+const boardArea = document.querySelector('.board-area');
+const themeButton = document.getElementById('theme-button');
+const titleOverlay = document.getElementById('title-overlay');
+const howtoOverlay = document.getElementById('howto-overlay');
+const titleStartButton = document.getElementById('title-start-button');
+const titleSkipButton = document.getElementById('title-skip-button');
+const howtoBackButton = document.getElementById('howto-back-button');
+const howtoNextButton = document.getElementById('howto-next-button');
+const setupHowtoButton = document.getElementById('setup-howto-button');
+const setupCancelButton = document.getElementById('setup-cancel-button');
 
+const THEME_STORAGE_KEY = 'gelpiyo-theme';
+const PIECE_EXIT_MS = 260;
+const darkSchemeQuery = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+const reducedMotionQuery = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+
+let cellNodes = [];
+let renderedBoard = null;
+let gameStarted = false;
 let board = [];
 let boardSize = 11;
 let boardRows = 11;
@@ -95,12 +115,55 @@ function currentSetupOpponent() {
 function updateSetupFormVisibility() {
     aiLevelFieldset.hidden = currentSetupOpponent() !== 'ai';
 }
+function prefersReducedMotion() {
+    return reducedMotionQuery ? reducedMotionQuery.matches : false;
+}
+function isDarkTheme() {
+    const explicit = document.documentElement.dataset.theme;
+    if (explicit === 'dark' || explicit === 'light') return explicit === 'dark';
+    return darkSchemeQuery ? darkSchemeQuery.matches : false;
+}
+function applyTheme(theme) {
+    if (theme === 'dark' || theme === 'light') document.documentElement.dataset.theme = theme;
+    else delete document.documentElement.dataset.theme;
+    const dark = isDarkTheme();
+    themeButton.textContent = dark ? 'ライト' : 'ダーク';
+    themeButton.setAttribute('aria-label', dark ? 'ライトテーマに切り替える' : 'ダークテーマに切り替える');
+}
+function readStoredTheme() {
+    try {
+        return localStorage.getItem(THEME_STORAGE_KEY);
+    } catch (error) {
+        return null;
+    }
+}
+function toggleTheme() {
+    const next = isDarkTheme() ? 'light' : 'dark';
+    try {
+        localStorage.setItem(THEME_STORAGE_KEY, next);
+    } catch (error) {
+        applyTheme(next);
+        return;
+    }
+    applyTheme(next);
+}
+function fitBoard() {
+    if (!boardArea) return;
+    const area = boardArea.getBoundingClientRect();
+    if (area.width <= 0 || area.height <= 0) return;
+    const frame = 2 * (parseFloat(getComputedStyle(boardElement).borderLeftWidth) || 0);
+    const innerWidth = Math.max(0, area.width - frame);
+    const innerHeight = Math.max(0, area.height - frame);
+    const width = Math.min(innerWidth, innerHeight * boardCols / boardRows);
+    if (width <= 0) return;
+    boardElement.style.width = `${Math.floor(width + frame)}px`;
+    boardElement.style.height = `${Math.floor(width * boardRows / boardCols + frame)}px`;
+}
 
 function getConfigLabel() {
     return !isAiMode() ? '人間 vs 人間' : `AI対戦 / あなた: ${playerName(gameConfig.humanColor)} / ${aiLevelLabel(gameConfig.aiLevel)}`;
 }
 function applyBoardLayout() {
-    boardElement.style.setProperty('--board-size', String(Math.max(boardRows, boardCols)));
     boardElement.style.setProperty('--board-cols', String(boardCols));
     boardElement.style.setProperty('--board-rows', String(boardRows));
     boardElement.classList.toggle('event-map', gameConfig.boardSize === EVENT_BOARD_SIZE);
@@ -109,6 +172,8 @@ function applyBoardLayout() {
     aiLevelDisplayElement.textContent = isAiMode() ? aiLevelLabel(gameConfig.aiLevel) : '対象外';
     guideDisplayElement.textContent = guideLabel(gameConfig.showGuide);
     passDisplayElement.textContent = consecutivePasses;
+    passChip.classList.toggle('is-zero', consecutivePasses === 0);
+    fitBoard();
 }
 function createInitialBoard() {
     boardRows = boardSize;
@@ -432,48 +497,82 @@ function selectionToGuideSet() {
         set.add(cellKey(...move.placements[1]));
     return set;
 }
-function renderBoard() {
-    const guideSet = selectionToGuideSet();
-    const selectedSet = new Set(selectedCells.map(([r,c]) => cellKey(r, c)));
-    const territories = getTerritoryRegions(board);
+function buildBoardCells() {
     boardElement.innerHTML = '';
-    for (let row = 0; row < boardRows; row += 1)
+    cellNodes = [];
+    const fragment = document.createDocumentFragment();
+    for (let row = 0; row < boardRows; row += 1) {
+        const rowNodes = [];
         for (let col = 0; col < boardCols; col += 1) {
             const button = document.createElement('button');
             button.type = 'button';
             button.className = 'cell';
+            button.dataset.row = String(row);
+            button.dataset.col = String(col);
             button.setAttribute('role', 'gridcell');
             button.setAttribute('aria-label', `${row + 1}行 ${col + 1}列`);
+            rowNodes.push(button);
+            fragment.appendChild(button);
+        }
+        cellNodes.push(rowNodes);
+    }
+    boardElement.appendChild(fragment);
+    renderedBoard = null;
+    fitBoard();
+}
+function setCellPiece(cell, value, previous, animate) {
+    const existing = cell.querySelector('.piece:not(.piece-exit)');
+    if (existing) {
+        if (animate && previous !== EMPTY && previous !== BLOCKED) {
+            existing.classList.add('piece-exit');
+            window.setTimeout( () => existing.remove(), PIECE_EXIT_MS);
+            cell.classList.add('cell-flash');
+            window.setTimeout( () => cell.classList.remove('cell-flash'), PIECE_EXIT_MS + 180);
+        } else {
+            existing.remove();
+        }
+    }
+    if (value !== FIRST && value !== SECOND && value !== GRAY)
+        return;
+    const wrap = document.createElement('div');
+    wrap.className = value === GRAY ? 'piece piece--gray' : 'piece';
+    if (animate)
+        wrap.classList.add('piece-enter');
+    const img = document.createElement('img');
+    img.src = PIECE_IMAGE[value];
+    img.alt = value === FIRST ? '先攻の駒' : value === SECOND ? '後攻の駒' : '灰色駒';
+    wrap.appendChild(img);
+    cell.appendChild(wrap);
+}
+function renderBoard() {
+    if (cellNodes.length !== boardRows || !cellNodes[0] || cellNodes[0].length !== boardCols)
+        buildBoardCells();
+    const guideSet = selectionToGuideSet();
+    const selectedSet = new Set(selectedCells.map( ([r,c]) => cellKey(r, c)));
+    const territories = getTerritoryRegions(board);
+    const animate = renderedBoard !== null && !prefersReducedMotion();
+    const locked = gameOver || aiThinking || (isAiMode() && !isHumanTurn());
+    clearSelectionButton.disabled = gameOver || aiThinking || selectedCells.length === 0;
+    for (let row = 0; row < boardRows; row += 1)
+        for (let col = 0; col < boardCols; col += 1) {
+            const cell = cellNodes[row][col];
+            const key = cellKey(row, col);
             const cellValue = board[row][col];
             const isBlockedCell = cellValue === BLOCKED;
-            button.disabled = gameOver || aiThinking || isBlockedCell || (isAiMode() && !isHumanTurn());
-            if (button.disabled) button.classList.add('disabled');
-            if (isBlockedCell) button.classList.add('blocked');
-            if (selectedSet.has(cellKey(row, col))) button.classList.add('selected');
-            if (!isBlockedCell && guideSet.has(cellKey(row, col))) button.classList.add('guide');
-            if (!isBlockedCell && selectedCells.length > 0 && guideSet.has(cellKey(row, col))) button.classList.add('second-guide');
-            if (territories.cellsForFirst.has(cellKey(row, col))) button.classList.add('territory-first');
-            if (territories.cellsForSecond.has(cellKey(row, col))) button.classList.add('territory-second');
-            button.addEventListener('click', () => handleCellClick(row, col));
-            if (cellValue === FIRST || cellValue === SECOND) {
-                const wrap = document.createElement('div');
-                wrap.className = 'piece-image';
-                const img = document.createElement('img');
-                img.src = PIECE_IMAGE[cellValue];
-                img.alt = cellValue === FIRST ? '先攻の駒' : '後攻の駒';
-                wrap.appendChild(img);
-                button.appendChild(wrap);
-            } else if (cellValue === GRAY) {
-                const wrap = document.createElement('div');
-                wrap.className = 'piece-image piece-gray-image';
-                const img = document.createElement('img');
-                img.src = PIECE_IMAGE[GRAY];
-                img.alt = '灰色駒';
-                wrap.appendChild(img);
-                button.appendChild(wrap);
-            }
-            boardElement.appendChild(button);
+            cell.disabled = locked || isBlockedCell;
+            cell.classList.toggle('disabled', cell.disabled);
+            cell.classList.toggle('blocked', isBlockedCell);
+            cell.classList.toggle('selected', selectedSet.has(key));
+            const isGuide = !isBlockedCell && guideSet.has(key);
+            cell.classList.toggle('guide', isGuide);
+            cell.classList.toggle('second-guide', isGuide && selectedCells.length > 0);
+            cell.classList.toggle('territory-first', territories.cellsForFirst.has(key));
+            cell.classList.toggle('territory-second', territories.cellsForSecond.has(key));
+            const previous = renderedBoard ? renderedBoard[row][col] : null;
+            if (previous !== cellValue)
+                setCellPiece(cell, cellValue, previous, animate);
         }
+    renderedBoard = cloneBoard(board);
 }
 function clearSelection(message='1手で2個の駒を選択してください。') {
     selectedCells = [];
@@ -591,7 +690,7 @@ function endGame() {
     <div class="result-row"><span>対戦設定</span><strong>${getConfigLabel()}</strong></div>
     <div class="result-row"><span>候補ガイド</span><strong>${guideLabel(gameConfig.showGuide)}</strong></div>
   `;
-    resultOverlay.classList.remove('hidden');
+    showScreen('result');
 }
 function updateUI(message='') {
     const counts = countPieces();
@@ -604,6 +703,8 @@ function updateUI(message='') {
     modeDisplay.textContent = getConfigLabel();
     applyBoardLayout();
     currentPlayerElement.textContent = gameOver ? '終了' : playerName(currentPlayer);
+    turnChip.classList.toggle('is-first', !gameOver && currentPlayer === FIRST);
+    turnChip.classList.toggle('is-second', !gameOver && currentPlayer === SECOND);
     if (message)
         messageElement.textContent = message;
     else if (gameOver)
@@ -612,7 +713,6 @@ function updateUI(message='') {
         messageElement.textContent = `AI（${playerName(currentPlayer)} / ${aiLevelLabel(gameConfig.aiLevel)}）が考えています...`;
     else
         messageElement.textContent = `${playerName(currentPlayer)}の番です。1個目候補: ${validFirstCount} 箇所。相手の自動パスの直後にこちらもパスなら終了します。`;
-    clearSelectionButton.disabled = gameOver || aiThinking || selectedCells.length === 0;
     renderBoard();
 }
 function scheduleAiTurn() {
@@ -642,13 +742,18 @@ function handleTurnProgress(message='') {
         return;
     scheduleAiTurn();
 }
-function openSetup() {
-    resultOverlay.classList.add('hidden');
-    updateSetupFormVisibility();
-    setupOverlay.classList.remove('hidden');
+function showScreen(name) {
+    titleOverlay.classList.toggle('hidden', name !== 'title');
+    howtoOverlay.classList.toggle('hidden', name !== 'howto');
+    setupOverlay.classList.toggle('hidden', name !== 'setup');
+    resultOverlay.classList.toggle('hidden', name !== 'result');
+    if (name === 'setup') {
+        updateSetupFormVisibility();
+        setupCancelButton.hidden = !gameStarted;
+    }
 }
-function closeSetup() {
-    setupOverlay.classList.add('hidden');
+function openSetup() {
+    showScreen('setup');
 }
 async function startGameFromConfig() {
     try {
@@ -670,8 +775,8 @@ async function startGameFromConfig() {
             boardCols = boardSize;
             board = createInitialBoard();
         }
-        closeSetup();
-        resultOverlay.classList.add('hidden');
+        gameStarted = true;
+        showScreen('game');
         updateUI(gameConfig.boardSize === EVENT_BOARD_SIZE ? 'イベントマップを読み込みました。' : 'ゲーム開始！ 駒はアップロード画像を使用しています。');
         selectionStatusElement.textContent = '1手で2個の駒を選択してください。';
         const result = resolveForcedPasses([]);
@@ -701,9 +806,31 @@ clearSelectionButton.addEventListener('click', () => clearSelection());
 resetButton.addEventListener('click', startGameFromConfig);
 resultRestartButton.addEventListener('click', startGameFromConfig);
 resultSetupButton.addEventListener('click', openSetup);
+titleStartButton.addEventListener('click', () => showScreen('howto'));
+titleSkipButton.addEventListener('click', () => showScreen('setup'));
+howtoBackButton.addEventListener('click', () => showScreen('title'));
+howtoNextButton.addEventListener('click', () => showScreen('setup'));
+setupHowtoButton.addEventListener('click', () => showScreen('howto'));
+setupCancelButton.addEventListener('click', () => showScreen('game'));
+themeButton.addEventListener('click', toggleTheme);
+boardElement.addEventListener('click', (event) => {
+    const cell = event.target.closest('.cell');
+    if (!cell || cell.disabled || !boardElement.contains(cell))
+        return;
+    handleCellClick(Number(cell.dataset.row), Number(cell.dataset.col));
+}
+);
+window.addEventListener('resize', fitBoard);
+window.addEventListener('orientationchange', fitBoard);
+document.querySelectorAll('details').forEach(node => node.addEventListener('toggle', fitBoard));
+if (window.ResizeObserver && boardArea)
+    new ResizeObserver(fitBoard).observe(boardArea);
+if (darkSchemeQuery && darkSchemeQuery.addEventListener)
+    darkSchemeQuery.addEventListener('change', () => applyTheme(document.documentElement.dataset.theme));
+applyTheme(readStoredTheme());
 board = createInitialBoard();
 applyBoardLayout();
-updateUI('ゲーム設定を選んで開始してください。');
-selectionStatusElement.textContent = '先攻は赤画像、後攻は青画像の駒です。';
+updateUI('「はじめる」から操作説明と設定に進みます。');
+selectionStatusElement.textContent = '先攻は赤い駒、後攻は青い駒です。';
 updateSetupFormVisibility();
-openSetup();
+showScreen('title');
