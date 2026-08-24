@@ -4,6 +4,7 @@ const SECOND = -1;
 const BLOCKED = 2;
 const GRAY = 3;
 const EVENT_BOARD_SIZE = 'event';
+const EXTRA_BOARD_SIZE = 'extra';
 const SUPPORTED_BOARD_SIZES = [9, 11, 13];
 const SUPPORTED_AI_LEVELS = ['easy', 'normal', 'hard'];
 const PIECE_IMAGE = {
@@ -48,6 +49,10 @@ const howtoBackButton = document.getElementById('howto-back-button');
 const howtoNextButton = document.getElementById('howto-next-button');
 const setupHowtoButton = document.getElementById('setup-howto-button');
 const setupCancelButton = document.getElementById('setup-cancel-button');
+const setupSubmitButton = document.getElementById('setup-submit-button');
+const simpleSizeSelect = document.getElementById('simple-size-select');
+const eventMapSelect = document.getElementById('event-map-select');
+const boardKindNote = document.getElementById('board-kind-note');
 
 const THEME_STORAGE_KEY = 'gelpiyo-theme';
 const PIECE_EXIT_MS = 260;
@@ -57,6 +62,7 @@ const reducedMotionQuery = window.matchMedia ? window.matchMedia('(prefers-reduc
 let cellNodes = [];
 let renderedBoard = null;
 let gameStarted = false;
+let activeMap = null;
 let board = [];
 let boardSize = 11;
 let boardRows = 11;
@@ -70,6 +76,7 @@ let gameConfig = {
     opponent: 'ai',
     humanColor: FIRST,
     boardSize: 11,
+    eventMapIndex: 0,
     aiLevel: 'normal',
     showGuide: true
 };
@@ -97,6 +104,7 @@ function inBounds(row, col) {
 }
 function normalizeBoardSize(value) {
     if (value === EVENT_BOARD_SIZE) return EVENT_BOARD_SIZE;
+    if (value === EXTRA_BOARD_SIZE) return EXTRA_BOARD_SIZE;
     const n = Number(value);
     return SUPPORTED_BOARD_SIZES.includes(n) ? n : 11;
 }
@@ -112,8 +120,17 @@ function cloneBoard(source) {
 function currentSetupOpponent() {
     return (setupForm.querySelector('input[name="opponent"]:checked')?.value) || 'ai';
 }
+function currentSetupBoardKind() {
+    return (setupForm.querySelector('input[name="boardKind"]:checked')?.value) || 'simple';
+}
 function updateSetupFormVisibility() {
     aiLevelFieldset.hidden = currentSetupOpponent() !== 'ai';
+    const kind = currentSetupBoardKind();
+    const noMaps = kind === EVENT_BOARD_SIZE && getEventMaps().length === 0;
+    const blocked = kind === EXTRA_BOARD_SIZE || noMaps;
+    boardKindNote.textContent = noMaps ? 'イベントの盤面パターンが読み込めません。map.js を確認してください。' : 'エキストラは準備中です。シンプルかイベントを選んでください。';
+    boardKindNote.hidden = !blocked;
+    setupSubmitButton.disabled = blocked;
 }
 function prefersReducedMotion() {
     return reducedMotionQuery ? reducedMotionQuery.matches : false;
@@ -127,7 +144,7 @@ function applyTheme(theme) {
     if (theme === 'dark' || theme === 'light') document.documentElement.dataset.theme = theme;
     else delete document.documentElement.dataset.theme;
     const dark = isDarkTheme();
-    themeButton.textContent = dark ? 'ライト' : 'ダーク';
+    themeButton.textContent = dark ? 'ダーク' : 'ライト';
     themeButton.setAttribute('aria-label', dark ? 'ライトテーマに切り替える' : 'ダークテーマに切り替える');
 }
 function readStoredTheme() {
@@ -166,9 +183,9 @@ function getConfigLabel() {
 function applyBoardLayout() {
     boardElement.style.setProperty('--board-cols', String(boardCols));
     boardElement.style.setProperty('--board-rows', String(boardRows));
-    boardElement.classList.toggle('event-map', gameConfig.boardSize === EVENT_BOARD_SIZE);
+    applyBoardBackground(activeMap ? activeMap.background : getSimpleBackground());
     boardElement.setAttribute('aria-label', `${boardCols}x${boardRows} ゲルぴよ盤`);
-    boardSizeDisplayElement.textContent = gameConfig.boardSize === EVENT_BOARD_SIZE ? `イベント ${boardCols} × ${boardRows}` : `${boardSize} × ${boardSize}`;
+    boardSizeDisplayElement.textContent = activeMap ? `${activeMap.name} ${boardCols} × ${boardRows}` : `シンプル ${boardSize} × ${boardSize}`;
     aiLevelDisplayElement.textContent = isAiMode() ? aiLevelLabel(gameConfig.aiLevel) : '対象外';
     guideDisplayElement.textContent = guideLabel(gameConfig.showGuide);
     passDisplayElement.textContent = consecutivePasses;
@@ -187,17 +204,61 @@ function createInitialBoard() {
     return newBoard;
 }
 
-async function loadEventMap() {
+function getSimpleBackground() {
+    return typeof window.SIMPLE_BOARD_BACKGROUND === 'string' ? window.SIMPLE_BOARD_BACKGROUND : '';
+}
+function getEventMaps() {
+    if (Array.isArray(window.EVENT_MAPS)) {
+        return window.EVENT_MAPS.filter(map => map && Array.isArray(map.cells));
+    }
     if (window.EVENT_MAP_DATA) {
-        return parseMapData(window.EVENT_MAP_DATA);
+        return [window.EVENT_MAP_DATA];
     }
-
-    const embeddedMap = document.getElementById('event-map-data');
-    if (embeddedMap && embeddedMap.textContent.trim()) {
-        return parseMapData(JSON.parse(embeddedMap.textContent));
+    return [];
+}
+function eventMapName(map, index) {
+    return (map && typeof map.name === 'string' && map.name.trim()) || `イベント${index + 1}`;
+}
+function normalizeEventMapIndex(value) {
+    const maps = getEventMaps();
+    const index = Number(value);
+    return Number.isInteger(index) && index >= 0 && index < maps.length ? index : 0;
+}
+function populateEventMapOptions() {
+    const maps = getEventMaps();
+    const previous = eventMapSelect.value;
+    eventMapSelect.innerHTML = '';
+    maps.forEach((map, index) => {
+        const option = document.createElement('option');
+        option.value = String(index);
+        option.textContent = eventMapName(map, index);
+        eventMapSelect.appendChild(option);
+    });
+    eventMapSelect.disabled = maps.length === 0;
+    if (maps.length === 0) {
+        const option = document.createElement('option');
+        option.textContent = '読み込めません';
+        eventMapSelect.appendChild(option);
+        return;
     }
-
-    throw new Error('map.js が読み込まれていません。index.html と同じフォルダに map.js を配置してください。');
+    eventMapSelect.value = previous && Number(previous) < maps.length ? previous : '0';
+}
+function applyBoardBackground(background) {
+    const url = typeof background === 'string' ? background.trim() : '';
+    boardElement.classList.toggle('has-background', url !== '');
+    boardElement.style.backgroundImage = url === '' ? '' : `url("${url.replace(/["\\]/g, '\\$&')}")`;
+}
+function loadEventMap(index) {
+    const maps = getEventMaps();
+    if (maps.length === 0) {
+        throw new Error('map.js が読み込まれていません。index.html と同じフォルダに map.js を配置してください。');
+    }
+    const chosen = maps[normalizeEventMapIndex(index)];
+    return {
+        name: eventMapName(chosen, normalizeEventMapIndex(index)),
+        background: chosen.background,
+        board: parseMapData(chosen)
+    };
 }
 function parseMapData(data) {
     const rawRows = Array.isArray(data) ? data : data.cells;
@@ -757,6 +818,10 @@ function openSetup() {
 }
 async function startGameFromConfig() {
     try {
+        if (gameConfig.boardSize === EXTRA_BOARD_SIZE) {
+            showScreen('setup');
+            return;
+        }
         gameConfig.aiLevel = normalizeAiLevel(gameConfig.aiLevel);
         gameConfig.showGuide = Boolean(gameConfig.showGuide);
         currentPlayer = FIRST;
@@ -765,11 +830,17 @@ async function startGameFromConfig() {
         consecutivePasses = 0;
         selectedCells = [];
         if (gameConfig.boardSize === EVENT_BOARD_SIZE) {
-            board = await loadEventMap();
+            const loaded = loadEventMap(gameConfig.eventMapIndex);
+            activeMap = {
+                name: loaded.name,
+                background: loaded.background
+            };
+            board = loaded.board;
             boardRows = board.length;
             boardCols = board[0].length;
             boardSize = Math.max(boardRows, boardCols);
         } else {
+            activeMap = null;
             boardSize = normalizeBoardSize(gameConfig.boardSize);
             boardRows = boardSize;
             boardCols = boardSize;
@@ -777,7 +848,7 @@ async function startGameFromConfig() {
         }
         gameStarted = true;
         showScreen('game');
-        updateUI(gameConfig.boardSize === EVENT_BOARD_SIZE ? 'イベントマップを読み込みました。' : 'ゲーム開始！ 駒はアップロード画像を使用しています。');
+        updateUI(activeMap ? `イベント「${activeMap.name}」を読み込みました。` : 'ゲーム開始！ 駒はアップロード画像を使用しています。');
         selectionStatusElement.textContent = '1手で2個の駒を選択してください。';
         const result = resolveForcedPasses([]);
         if (!result.ended) scheduleAiTurn();
@@ -789,18 +860,33 @@ async function startGameFromConfig() {
 }
 setupForm.addEventListener('submit', (event) => {
     event.preventDefault();
+    const boardKind = currentSetupBoardKind();
+    if (boardKind === EXTRA_BOARD_SIZE || (boardKind === EVENT_BOARD_SIZE && getEventMaps().length === 0)) {
+        updateSetupFormVisibility();
+        return;
+    }
     const formData = new FormData(setupForm);
     gameConfig = {
         humanColor: formData.get('playerColor') === 'white' ? SECOND : FIRST,
         opponent: formData.get('opponent') === 'human' ? 'human' : 'ai',
         aiLevel: normalizeAiLevel(formData.get('aiLevel')),
-        boardSize: normalizeBoardSize(formData.get('boardSize')),
+        boardSize: boardKind === EVENT_BOARD_SIZE ? EVENT_BOARD_SIZE : normalizeBoardSize(simpleSizeSelect.value),
+        eventMapIndex: normalizeEventMapIndex(eventMapSelect.value),
         showGuide: normalizeGuide(formData.get('showGuide'))
     };
     startGameFromConfig();
 }
 );
 setupForm.querySelectorAll('input[name="opponent"]').forEach(input => input.addEventListener('change', updateSetupFormVisibility));
+setupForm.querySelectorAll('input[name="boardKind"]').forEach(input => input.addEventListener('change', updateSetupFormVisibility));
+function selectBoardKind(kind) {
+    const radio = setupForm.querySelector(`input[name="boardKind"][value="${kind}"]`);
+    if (radio)
+        radio.checked = true;
+    updateSetupFormVisibility();
+}
+simpleSizeSelect.addEventListener('change', () => selectBoardKind('simple'));
+eventMapSelect.addEventListener('change', () => selectBoardKind(EVENT_BOARD_SIZE));
 openSetupButton.addEventListener('click', openSetup);
 clearSelectionButton.addEventListener('click', () => clearSelection());
 resetButton.addEventListener('click', startGameFromConfig);
@@ -832,5 +918,6 @@ board = createInitialBoard();
 applyBoardLayout();
 updateUI('「はじめる」から操作説明と設定に進みます。');
 selectionStatusElement.textContent = '先攻は赤い駒、後攻は青い駒です。';
+populateEventMapOptions();
 updateSetupFormVisibility();
 showScreen('title');

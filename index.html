@@ -68,10 +68,10 @@
     </section>
 
     <details class="rules">
-      <summary>陣取りゲームのルール</summary>
+      <summary>陣取りゲームのルール (詳細)</summary>
       <ul>
-        <li>盤面サイズは 9 × 9、11 × 11、13 × 13、イベントマップから選べます。</li>
-        <li>通常マップの初期配置は中心 3 × 3 の対角上に、先攻と後攻の駒を 1 個ずつ置いた状態です。イベントマップでは map.js の配置を使用します。</li>
+        <li>盤面サイズは シンプル（9 × 9 / 11 × 11 / 13 × 13）、イベント、エキストラ（準備中）から選べます。</li>
+        <li>通常マップの初期配置は中心 3 × 3 の対角上に、先攻と後攻の駒を 1 個ずつ置いた状態です。イベントマップでは 指定された配置となります。</li>
         <li>先攻の駒は赤色、後攻の駒は青色で表しています。灰色駒は中立駒です。</li>
         <li>1手で同じ行または列に駒を2個置きます。</li>
         <li>2つの新しい駒は、消す相手駒の上下または左右にぴったり隣接して置く必要があります。</li>
@@ -129,7 +129,7 @@
 
         <li>
           <h3>2. 挟んだ相手の駒が消える</h3>
-          <p>相手の駒をまたぐように2個置くと、挟まれた相手の駒が消えます。挟めない置き方は選べません。灰色の駒は挟んでも消えません。</p>
+          <p>相手の駒をまたぐように2個置くと、挟まれた相手の駒が消えます。挟めない置き方は選べません。灰色の駒は挟んで消せません。</p>
           <div class="demo-row">
             <div class="demo-board demo-3">
               <span class="cell demo-cell guide"></span>
@@ -147,7 +147,7 @@
 
         <li>
           <h3>3. 3 × 3の四隅を押さえて陣を取る</h3>
-          <p>3 × 3の四隅を自分の色でそろえると陣が成立します。成立した3 × 3の中に残っていた相手の駒と灰色の駒は消え、そこには相手が新しく駒を置けなくなります。</p>
+          <p>3 × 3の四隅を自分の色でそろえると陣が成立します。成立した3 × 3の中に残っていた相手の駒と灰色の駒が消え、そこには相手が新しく駒を置けなくなります。</p>
           <div class="demo-row">
             <div class="demo-board demo-9">
               <span class="cell demo-cell"><span class="piece"><img src="images/unit_red_piece.png" alt="先攻の駒" /></span></span>
@@ -215,10 +215,22 @@
 
         <fieldset>
           <legend>盤面サイズ</legend>
-          <label class="option-card"><input type="radio" name="boardSize" value="9" /><span>9 × 9</span></label>
-          <label class="option-card"><input type="radio" name="boardSize" value="11" checked /><span>11 × 11</span></label>
-          <label class="option-card"><input type="radio" name="boardSize" value="13" /><span>13 × 13</span></label>
-          <label class="option-card"><input type="radio" name="boardSize" value="event" /><span>イベントマップ</span></label>
+          <div class="option-group">
+            <div class="option-row">
+              <label class="option-card"><input type="radio" name="boardKind" value="simple" checked /><span>シンプル</span></label>
+              <select id="simple-size-select" aria-label="シンプルの盤面サイズ">
+                <option value="9">9 × 9</option>
+                <option value="11" selected>11 × 11</option>
+                <option value="13">13 × 13</option>
+              </select>
+            </div>
+            <div class="option-row">
+              <label class="option-card"><input type="radio" name="boardKind" value="event" /><span>イベント</span></label>
+              <select id="event-map-select" aria-label="イベントの盤面パターン"></select>
+            </div>
+            <label class="option-card"><input type="radio" name="boardKind" value="extra" /><span>エキストラ</span></label>
+          </div>
+          <p class="fieldset-note" id="board-kind-note" hidden>エキストラは準備中です。シンプルかイベントを選んでください。</p>
         </fieldset>
 
         <fieldset>
@@ -230,7 +242,7 @@
         <div class="setup-actions">
           <button id="setup-cancel-button" class="ghost" type="button" hidden>対局に戻る</button>
           <button id="setup-howto-button" class="ghost" type="button">操作説明を見る</button>
-          <button type="submit" class="primary">ゲーム開始</button>
+          <button id="setup-submit-button" type="submit" class="primary">ゲーム開始</button>
         </div>
       </form>
     </div>
