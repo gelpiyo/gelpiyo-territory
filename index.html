@@ -6,6 +6,16 @@
   <meta name="color-scheme" content="light dark" />
   <title>ゲルぴよ陣取りゲーム</title>
   <link rel="stylesheet" href="style.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "./three/three.module.js",
+        //"three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "./three/addons/"
+        //"three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
 </head>
 <body>
   <div class="app">
@@ -34,12 +44,14 @@
         <div class="side side-first">
           <span class="side-name">先攻</span>
           <span class="side-stat"><strong id="black-score">1</strong><span class="unit">駒</span></span>
-          <span class="side-stat"><strong id="black-territory">0</strong><span class="unit">陣</span></span>
+          <span class="side-stat"><strong id="black-territory">0</strong><span class="unit">面</span></span>
+          <span class="side-stat cube-stat"><strong id="black-cube">0</strong><span class="unit">立</span></span>
         </div>
         <div class="side side-second">
           <span class="side-name">後攻</span>
           <span class="side-stat"><strong id="white-score">1</strong><span class="unit">駒</span></span>
-          <span class="side-stat"><strong id="white-territory">0</strong><span class="unit">陣</span></span>
+          <span class="side-stat"><strong id="white-territory">0</strong><span class="unit">面</span></span>
+          <span class="side-stat cube-stat"><strong id="white-cube">0</strong><span class="unit">立</span></span>
         </div>
       </div>
 
@@ -65,6 +77,9 @@
 
     <section class="board-area" aria-label="盤面">
       <div id="board" class="board" role="grid" aria-label="ゲルぴよ盤"></div>
+      <div id="board-3d" class="board-3d hidden" aria-label="3D立方格子盤">
+        <div id="cursor-info" class="cursor-info" aria-live="polite">カーソル位置: (5, 5, 5)</div>
+      </div>
     </section>
 
     <details class="rules">
@@ -83,6 +98,12 @@
         <li>一度相手の陣になった3 × 3の中には、新たに自分の駒を置けません。</li>
         <li>2つの新しい駒を置く手が存在しない場合は自動パスとなります。任意でパスすることはできません。</li>
         <li>相手の自動パスの直後にこちらも自動パスなら、またはその逆でも、その時点で対戦終了です。</li>
+        <li><strong>エキストラ</strong>は 9 × 9 × 9 の立体盤です。挟む向きが X・Y に加えて Z（奥行き）方向にも増えます。</li>
+        <li><strong>エキストラ</strong>の陣地は2段階です。1段階目は軸に沿った平面 3 × 3 の四隅（XY・XZ・YZ の3向き）、2段階目は立方体 3 × 3 × 3 の八隅を自分の色で押さえたときに成立します。</li>
+        <li><strong>エキストラ</strong>の平面陣の中にある駒は、その平面の法線方向（XY面ならZ方向）からは挟めません。立方陣の八隅は3つの面に属するため、X・Y・Zどの方向からも挟めなくなります。</li>
+        <li><strong>エキストラ</strong>で平面陣が成立したとき、四隅以外の残り 5 マスにある相手駒と灰色駒は消えますが、<strong>相手の平面陣を形成している駒（成立中の平面陣の四隅）は消えずに残ります</strong>。</li>
+        <li><strong>エキストラ</strong>で立方陣が成立すると、その 27 マス内の相手駒・灰色駒は<strong>相手の平面陣を形成している駒も含めて</strong>消えます。さらに重なっている相手の平面陣を解体し、立方体の外にはみ出した分の駒までまとめて消します。</li>
+        <li><strong>エキストラ</strong>の勝敗は 駒の数 ＋ 平面陣 × 3 ＋ 立方陣 × 9 の合計で決まります。</li>
       </ul>
     </details>
   </div>
@@ -261,6 +282,8 @@
   </div>
 
   <script src="map.js"></script>
+  <script src="extra-rules.js"></script>
   <script src="script.js"></script>
+  <script type="module" src="extra3d.js"></script>
 </body>
 </html>

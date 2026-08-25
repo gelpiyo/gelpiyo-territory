@@ -40,6 +40,11 @@ const resultSetupButton = document.getElementById('result-setup-button');
 const turnChip = document.getElementById('turn-chip');
 const passChip = document.getElementById('pass-chip');
 const boardArea = document.querySelector('.board-area');
+const appElement = document.querySelector('.app');
+const board3dElement = document.getElementById('board-3d');
+const cursorInfoElement = document.getElementById('cursor-info');
+const blackCubeElement = document.getElementById('black-cube');
+const whiteCubeElement = document.getElementById('white-cube');
 const themeButton = document.getElementById('theme-button');
 const titleOverlay = document.getElementById('title-overlay');
 const howtoOverlay = document.getElementById('howto-overlay');
@@ -63,6 +68,14 @@ let cellNodes = [];
 let renderedBoard = null;
 let gameStarted = false;
 let activeMap = null;
+let extraBoard = null;
+let extraPlayer = FIRST;
+let extraGameOver = false;
+let extraAiThinking = false;
+let extraPasses = 0;
+let extraSelected = [];
+let extraTerritories = null;
+let extraMoveIndex = new Map();
 let board = [];
 let boardSize = 11;
 let boardRows = 11;
@@ -127,10 +140,22 @@ function updateSetupFormVisibility() {
     aiLevelFieldset.hidden = currentSetupOpponent() !== 'ai';
     const kind = currentSetupBoardKind();
     const noMaps = kind === EVENT_BOARD_SIZE && getEventMaps().length === 0;
-    const blocked = kind === EXTRA_BOARD_SIZE || noMaps;
-    boardKindNote.textContent = noMaps ? 'イベントの盤面パターンが読み込めません。map.js を確認してください。' : 'エキストラは準備中です。シンプルかイベントを選んでください。';
+    const noExtra = kind === EXTRA_BOARD_SIZE && !isExtraReady();
+    const blocked = noMaps || noExtra;
+    boardKindNote.textContent = noMaps ? 'イベントの盤面パターンが読み込めません。map.js を確認してください。' : extraUnavailableMessage();
     boardKindNote.hidden = !blocked;
     setupSubmitButton.disabled = blocked;
+}
+function isExtraMode() {
+    return gameConfig.boardSize === EXTRA_BOARD_SIZE;
+}
+function isExtraReady() {
+    return Boolean(window.Extra3DRules && window.Extra3DView && window.Extra3DView.ready);
+}
+function extraUnavailableMessage() {
+    if (!window.Extra3DRules) return 'エキストラ用の extra-rules.js を読み込めていません。index.html と同じフォルダに置いてください。';
+    if (window.EXTRA_3D_ERROR) return window.EXTRA_3D_ERROR;
+    return '3D表示を準備中です。数秒待ってからもう一度お試しください。';
 }
 function prefersReducedMotion() {
     return reducedMotionQuery ? reducedMotionQuery.matches : false;
@@ -818,12 +843,23 @@ function openSetup() {
 }
 async function startGameFromConfig() {
     try {
-        if (gameConfig.boardSize === EXTRA_BOARD_SIZE) {
-            showScreen('setup');
-            return;
-        }
         gameConfig.aiLevel = normalizeAiLevel(gameConfig.aiLevel);
         gameConfig.showGuide = Boolean(gameConfig.showGuide);
+        if (gameConfig.boardSize === EXTRA_BOARD_SIZE) {
+            if (!isExtraReady()) {
+                showScreen('setup');
+                updateSetupFormVisibility();
+                return;
+            }
+            activeMap = null;
+            gameStarted = true;
+            showScreen('game');
+            startExtraGame();
+            return;
+        }
+        appElement.classList.remove('mode-3d');
+        if (window.Extra3DView && window.Extra3DView.ready)
+            window.Extra3DView.stop();
         currentPlayer = FIRST;
         gameOver = false;
         aiThinking = false;
@@ -858,10 +894,228 @@ async function startGameFromConfig() {
         alert(error.message);
     }
 }
+function isExtraHumanTurn() {
+    return !isAiMode() || extraPlayer === gameConfig.humanColor;
+}
+function updateCursorInfo(point) {
+    cursorInfoElement.textContent = `カーソル位置: (${point.x + 1}, ${point.y + 1}, ${point.z + 1})`;
+}
+function rebuildExtraMoves() {
+    const rules = window.Extra3DRules;
+    extraTerritories = rules.getTerritories(extraBoard);
+    extraMoveIndex = new Map();
+    if (extraGameOver) return;
+    for (const move of rules.getValidMoves(extraBoard, extraPlayer))
+        for (const cell of move.placements) {
+            if (!extraMoveIndex.has(cell)) extraMoveIndex.set(cell, []);
+            extraMoveIndex.get(cell).push({
+                cell: move.placements[0] === cell ? move.placements[1] : move.placements[0],
+                move
+            });
+        }
+}
+function extraGuideSets() {
+    if (!gameConfig.showGuide || extraGameOver || extraAiThinking || !isExtraHumanTurn())
+        return {
+            guides: new Set(),
+            secondGuides: new Set()
+        };
+    if (extraSelected.length === 0)
+        return {
+            guides: new Set(extraMoveIndex.keys()),
+            secondGuides: new Set()
+        };
+    const options = extraMoveIndex.get(extraSelected[0]) || [];
+    return {
+        guides: new Set(),
+        secondGuides: new Set(options.map(entry => entry.cell))
+    };
+}
+function syncExtraView() {
+    const sets = extraGuideSets();
+    clearSelectionButton.disabled = extraGameOver || extraAiThinking || extraSelected.length === 0;
+    window.Extra3DView.setState({
+        board: extraBoard,
+        guides: sets.guides,
+        secondGuides: sets.secondGuides,
+        selected: extraSelected,
+        territories: extraTerritories,
+        interactive: !extraGameOver && !extraAiThinking && isExtraHumanTurn()
+    });
+}
+function updateExtraUI(message='') {
+    const rules = window.Extra3DRules;
+    rebuildExtraMoves();
+    const first = rules.scoreOf(extraBoard, FIRST);
+    const second = rules.scoreOf(extraBoard, SECOND);
+    blackScoreElement.textContent = first.pieces;
+    whiteScoreElement.textContent = second.pieces;
+    blackTerritoryElement.textContent = first.planes;
+    whiteTerritoryElement.textContent = second.planes;
+    blackCubeElement.textContent = first.cubes;
+    whiteCubeElement.textContent = second.cubes;
+    modeDisplay.textContent = getConfigLabel();
+    boardSizeDisplayElement.textContent = `エキストラ ${rules.SIZE} × ${rules.SIZE} × ${rules.SIZE}`;
+    aiLevelDisplayElement.textContent = isAiMode() ? aiLevelLabel(gameConfig.aiLevel) : '対象外';
+    guideDisplayElement.textContent = guideLabel(gameConfig.showGuide);
+    passDisplayElement.textContent = extraPasses;
+    passChip.classList.toggle('is-zero', extraPasses === 0);
+    currentPlayerElement.textContent = extraGameOver ? '終了' : playerName(extraPlayer);
+    turnChip.classList.toggle('is-first', !extraGameOver && extraPlayer === FIRST);
+    turnChip.classList.toggle('is-second', !extraGameOver && extraPlayer === SECOND);
+    if (message)
+        messageElement.textContent = message;
+    else if (extraGameOver)
+        messageElement.textContent = 'ゲーム終了';
+    else if (isAiMode() && !isExtraHumanTurn())
+        messageElement.textContent = `AI（${playerName(extraPlayer)} / ${aiLevelLabel(gameConfig.aiLevel)}）が考えています...`;
+    else
+        messageElement.textContent = `${playerName(extraPlayer)}の番です。1個目候補: ${extraMoveIndex.size} 箇所。X・Y・Zどの向きでも挟めます。`;
+    syncExtraView();
+}
+function formatExtraMoveMessage(actor, move) {
+    const parts = [`${actor}が ${move.axisLabel}方向に2個置いて ${move.captured.length} 個の相手駒を消しました`];
+    if (move.territoryCleared > 0)
+        parts.push(`陣内の相手駒・灰色駒 ${move.territoryCleared} 個も消えました`);
+    if (move.planesDissolved > 0)
+        parts.push(`うち立方陣による平面陣の解体分 ${move.planesDissolved} 個`);
+    return parts.join(' / ') + '。';
+}
+function applyExtraMove(move) {
+    extraBoard = move.nextBoard;
+    extraPlayer *= -1;
+    extraPasses = 0;
+    extraSelected = [];
+}
+function endExtraGame() {
+    const rules = window.Extra3DRules;
+    extraGameOver = true;
+    extraAiThinking = false;
+    extraSelected = [];
+    const first = rules.scoreOf(extraBoard, FIRST);
+    const second = rules.scoreOf(extraBoard, SECOND);
+    let summary = '引き分け';
+    if (first.total > second.total) summary = '先攻の勝ち';
+    if (second.total > first.total) summary = '後攻の勝ち';
+    updateExtraUI(`ゲーム終了。${summary}！`);
+    resultSummary.textContent = `${summary}！`;
+    resultDetail.innerHTML = `
+    <div class="result-row"><span>盤面</span><strong>エキストラ ${rules.SIZE} × ${rules.SIZE} × ${rules.SIZE}</strong></div>
+    <div class="result-row"><span>先攻の駒数</span><strong>${first.pieces}</strong></div>
+    <div class="result-row"><span>後攻の駒数</span><strong>${second.pieces}</strong></div>
+    <div class="result-row"><span>先攻の平面陣 / 立方陣</span><strong>${first.planes} / ${first.cubes}</strong></div>
+    <div class="result-row"><span>後攻の平面陣 / 立方陣</span><strong>${second.planes} / ${second.cubes}</strong></div>
+    <div class="result-row"><span>総合判定（駒＋面×3＋立×9）</span><strong>${first.total} vs ${second.total}</strong></div>
+    <div class="result-row"><span>対戦設定</span><strong>${getConfigLabel()}</strong></div>
+  `;
+    showScreen('result');
+}
+function resolveExtraPasses(messages=[]) {
+    const rules = window.Extra3DRules;
+    let autoPassed = false;
+    while (!extraGameOver && rules.getValidMoves(extraBoard, extraPlayer).length === 0) {
+        autoPassed = true;
+        const passedPlayer = extraPlayer;
+        extraPlayer *= -1;
+        extraPasses += 1;
+        messages.push(`${playerName(passedPlayer)}は完成できる手がなくパスです。`);
+        if (extraPasses >= 2) {
+            endExtraGame();
+            return {
+                ended: true
+            };
+        }
+    }
+    if (!extraGameOver)
+        updateExtraUI(messages.join(' / '));
+    selectionStatusElement.textContent = autoPassed ? '連続パスを判定しました。' : '1手で2個の駒を選択してください。';
+    return {
+        ended: false
+    };
+}
+function scheduleExtraAiTurn() {
+    if (!isAiMode() || extraGameOver || isExtraHumanTurn())
+        return;
+    extraAiThinking = true;
+    updateExtraUI();
+    window.setTimeout( () => {
+        const actor = `AI（${aiLevelLabel(gameConfig.aiLevel)}）`;
+        const move = window.Extra3DRules.chooseAiMove(extraBoard, extraPlayer, gameConfig.aiLevel);
+        extraAiThinking = false;
+        if (!move) {
+            const passResult = resolveExtraPasses([]);
+            if (passResult.ended)
+                return;
+            scheduleExtraAiTurn();
+            return;
+        }
+        applyExtraMove(move);
+        handleExtraTurnProgress(formatExtraMoveMessage(actor, move));
+    }
+    , gameConfig.aiLevel === 'hard' ? 650 : 420);
+}
+function handleExtraTurnProgress(message='') {
+    const result = resolveExtraPasses(message ? [message] : []);
+    if (result.ended)
+        return;
+    scheduleExtraAiTurn();
+}
+function handleExtraSelect(cell) {
+    if (extraGameOver || extraAiThinking || !isExtraHumanTurn())
+        return;
+    if (extraSelected.length === 0) {
+        const options = extraMoveIndex.get(cell);
+        if (!options) {
+            selectionStatusElement.textContent = 'そのマスからは手が作れません。緑の候補から選んでください。';
+            syncExtraView();
+            return;
+        }
+        extraSelected = [cell];
+        const point = window.Extra3DRules.decode(cell);
+        selectionStatusElement.textContent = `1個目: (${point.x + 1}, ${point.y + 1}, ${point.z + 1})。2個目候補: ${options.length} 箇所。`;
+        syncExtraView();
+        return;
+    }
+    if (extraSelected[0] === cell) {
+        extraSelected = [];
+        selectionStatusElement.textContent = '1手で2個の駒を選択してください。';
+        syncExtraView();
+        return;
+    }
+    const chosen = (extraMoveIndex.get(extraSelected[0]) || []).find(entry => entry.cell === cell);
+    if (!chosen) {
+        selectionStatusElement.textContent = 'その2個目では手が完成しません。';
+        syncExtraView();
+        return;
+    }
+    const actor = playerName(extraPlayer);
+    applyExtraMove(chosen.move);
+    handleExtraTurnProgress(formatExtraMoveMessage(actor, chosen.move));
+}
+function startExtraGame() {
+    extraBoard = window.Extra3DRules.createInitialBoard();
+    extraPlayer = FIRST;
+    extraGameOver = false;
+    extraAiThinking = false;
+    extraPasses = 0;
+    extraSelected = [];
+    appElement.classList.add('mode-3d');
+    window.Extra3DView.init(board3dElement);
+    window.Extra3DView.setOnSelect(handleExtraSelect);
+    window.Extra3DView.setOnCursorChange(updateCursorInfo);
+    window.Extra3DView.start();
+    window.Extra3DView.resize();
+    updateExtraUI('エキストラ（3D）開始！ X・Y・Zのどの向きでも相手駒を挟めます。');
+    selectionStatusElement.textContent = '1手で2個の駒を選択してください。';
+    const result = resolveExtraPasses([]);
+    if (!result.ended)
+        scheduleExtraAiTurn();
+}
 setupForm.addEventListener('submit', (event) => {
     event.preventDefault();
     const boardKind = currentSetupBoardKind();
-    if (boardKind === EXTRA_BOARD_SIZE || (boardKind === EVENT_BOARD_SIZE && getEventMaps().length === 0)) {
+    const blocked = (boardKind === EXTRA_BOARD_SIZE && !isExtraReady()) || (boardKind === EVENT_BOARD_SIZE && getEventMaps().length === 0);
+    if (blocked) {
         updateSetupFormVisibility();
         return;
     }
@@ -870,7 +1124,7 @@ setupForm.addEventListener('submit', (event) => {
         humanColor: formData.get('playerColor') === 'white' ? SECOND : FIRST,
         opponent: formData.get('opponent') === 'human' ? 'human' : 'ai',
         aiLevel: normalizeAiLevel(formData.get('aiLevel')),
-        boardSize: boardKind === EVENT_BOARD_SIZE ? EVENT_BOARD_SIZE : normalizeBoardSize(simpleSizeSelect.value),
+        boardSize: boardKind === 'simple' ? normalizeBoardSize(simpleSizeSelect.value) : boardKind,
         eventMapIndex: normalizeEventMapIndex(eventMapSelect.value),
         showGuide: normalizeGuide(formData.get('showGuide'))
     };
@@ -888,7 +1142,16 @@ function selectBoardKind(kind) {
 simpleSizeSelect.addEventListener('change', () => selectBoardKind('simple'));
 eventMapSelect.addEventListener('change', () => selectBoardKind(EVENT_BOARD_SIZE));
 openSetupButton.addEventListener('click', openSetup);
-clearSelectionButton.addEventListener('click', () => clearSelection());
+clearSelectionButton.addEventListener('click', () => {
+    if (isExtraMode() && extraBoard) {
+        extraSelected = [];
+        updateExtraUI();
+        selectionStatusElement.textContent = '1手で2個の駒を選択してください。';
+        return;
+    }
+    clearSelection();
+}
+);
 resetButton.addEventListener('click', startGameFromConfig);
 resultRestartButton.addEventListener('click', startGameFromConfig);
 resultSetupButton.addEventListener('click', openSetup);
@@ -906,11 +1169,17 @@ boardElement.addEventListener('click', (event) => {
     handleCellClick(Number(cell.dataset.row), Number(cell.dataset.col));
 }
 );
-window.addEventListener('resize', fitBoard);
-window.addEventListener('orientationchange', fitBoard);
-document.querySelectorAll('details').forEach(node => node.addEventListener('toggle', fitBoard));
+function refitBoards() {
+    fitBoard();
+    if (window.Extra3DView && window.Extra3DView.ready)
+        window.Extra3DView.resize();
+}
+window.addEventListener('resize', refitBoards);
+window.addEventListener('orientationchange', refitBoards);
+window.addEventListener('extra3d-ready', updateSetupFormVisibility);
+document.querySelectorAll('details').forEach(node => node.addEventListener('toggle', refitBoards));
 if (window.ResizeObserver && boardArea)
-    new ResizeObserver(fitBoard).observe(boardArea);
+    new ResizeObserver(refitBoards).observe(boardArea);
 if (darkSchemeQuery && darkSchemeQuery.addEventListener)
     darkSchemeQuery.addEventListener('change', () => applyTheme(document.documentElement.dataset.theme));
 applyTheme(readStoredTheme());

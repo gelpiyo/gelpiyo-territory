@@ -433,6 +433,53 @@ details[open] > summary::before {
     box-shadow: var(--shadow);
 }
 
+.board-3d {
+    display: none;
+    position: relative;
+    width: 100%;
+    height: 100%;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #0d0e12;
+    box-shadow: var(--shadow);
+    touch-action: none;
+}
+
+.cursor-info {
+    position: absolute;
+    top: 10px;
+    left: 10px;
+    z-index: 1;
+    padding: 6px 11px;
+    border-radius: 8px;
+    background: rgba(18,22,32,.85);
+    border: 1px solid rgba(255,255,255,.18);
+    color: #ffffff;
+    font-size: .78rem;
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+}
+
+.app.mode-3d .board {
+    display: none;
+}
+
+.app.mode-3d .board-3d {
+    display: block;
+}
+
+.cube-stat {
+    display: none;
+}
+
+.app.mode-3d .cube-stat {
+    display: inline-flex;
+}
+
+.app.mode-3d .side {
+    gap: 6px;
+}
+
 .board.has-background {
     background-size: cover;
     background-position: center;
