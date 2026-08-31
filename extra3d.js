@@ -18,6 +18,12 @@ if (THREE && OrbitControls) {
     const OFFSET = ((SIZE - 1) * SPACING) / 2;
     const AXIS_MARGIN = 12;
 
+    // 陣地の表示濃度。平面陣は控えめ、立方陣ははっきり濃く発光させて区別します。
+    const PLANE_OPACITY = 0.25;
+    const CUBE_OPACITY = 0.50;
+    const FIRST_COLOR = 0xdc2626;
+    const SECOND_COLOR = 0x2563eb;
+
     const X_AXIS_COLOR = 0xff4d4d;
     const Y_AXIS_COLOR = 0x4dff4d;
     const Z_AXIS_COLOR = 0x4d94ff;
@@ -69,12 +75,12 @@ if (THREE && OrbitControls) {
         cellMaterials.guide = makeCellMaterial(0x22c55e, 0.3, 0x22c55e);
         cellMaterials.secondGuide = makeCellMaterial(0xf59e0b, 0.36, 0xf59e0b);
         cellMaterials.selected = makeCellMaterial(0xff8000, 0.55, 0xff8000);
-        cellMaterials.planeFirst = makeCellMaterial(0xdc2626, 0.12);
-        cellMaterials.planeSecond = makeCellMaterial(0x2563eb, 0.12);
-        cellMaterials.cubeFirst = makeCellMaterial(0xdc2626, 0.26);
-        cellMaterials.cubeSecond = makeCellMaterial(0x2563eb, 0.26);
-        pieceMaterials[1] = new THREE.MeshStandardMaterial({ color: 0xdc2626, roughness: 0.4, metalness: 0.05 });
-        pieceMaterials[-1] = new THREE.MeshStandardMaterial({ color: 0x2563eb, roughness: 0.4, metalness: 0.05 });
+        cellMaterials.planeFirst = makeCellMaterial(FIRST_COLOR, PLANE_OPACITY);
+        cellMaterials.planeSecond = makeCellMaterial(SECOND_COLOR, PLANE_OPACITY);
+        cellMaterials.cubeFirst = makeCellMaterial(FIRST_COLOR, CUBE_OPACITY, FIRST_COLOR);
+        cellMaterials.cubeSecond = makeCellMaterial(SECOND_COLOR, CUBE_OPACITY, SECOND_COLOR);
+        pieceMaterials[1] = new THREE.MeshStandardMaterial({ color: FIRST_COLOR, roughness: 0.4, metalness: 0.05 });
+        pieceMaterials[-1] = new THREE.MeshStandardMaterial({ color: SECOND_COLOR, roughness: 0.4, metalness: 0.05 });
         pieceMaterials[3] = new THREE.MeshStandardMaterial({ color: 0x9ca3af, roughness: 0.5, metalness: 0.05 });
     }
     function buildAxisNavigator() {
