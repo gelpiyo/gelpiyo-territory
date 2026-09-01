@@ -23,6 +23,11 @@ if (THREE && OrbitControls) {
     const CUBE_OPACITY = 0.50;
     const FIRST_COLOR = 0xdc2626;
     const SECOND_COLOR = 0x2563eb;
+    const GRAY_COLOR = 0x9ca3af;
+    // ゲルぴよモデルの体以外のパーツ色（体はプレイヤー色で塗り分けます）
+    const BEAK_COLOR = 0xff8d00;
+    const EYE_COLOR = 0x131313;
+    const DETAIL_COLOR = 0xff95ff;
 
     const X_AXIS_COLOR = 0xff4d4d;
     const Y_AXIS_COLOR = 0x4dff4d;
@@ -63,11 +68,43 @@ if (THREE && OrbitControls) {
     let cursor = { x: 4, y: 4, z: 4 };
 
     const cellMeshes = [];
-    const pieceMeshes = new Map();
+    const pieceInstances = new Map();
     const cellMaterials = {};
-    const pieceMaterials = {};
+    const instanceDummy = new THREE.Object3D();
     let cellGeometry = null;
     let pieceGeometry = null;
+    let pieceScale = 1;
+
+    function decodeBase64(text, ArrayType) {
+        const binary = atob(text);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+        return new ArrayType(bytes.buffer);
+    }
+    // gelpyto-model.js の量子化データから駒のジオメトリを作ります。
+    // position は Int16、normal は Int8 の正規化値なので、拡大はインスタンス行列側で行います。
+    function buildPieceGeometry() {
+        const model = window.GELPYTO_MODEL;
+        if (!model) return null;
+        const geometry = new THREE.BufferGeometry();
+        geometry.setAttribute('position', new THREE.BufferAttribute(decodeBase64(model.position, Int16Array), 3, true));
+        geometry.setAttribute('normal', new THREE.BufferAttribute(decodeBase64(model.normal, Int8Array), 3, true));
+        geometry.setIndex(new THREE.BufferAttribute(decodeBase64(model.index, Uint16Array), 1));
+        for (const group of model.groups) geometry.addGroup(group.start, group.count, group.material);
+        geometry.computeBoundingSphere();
+        pieceScale = model.extent;
+        return geometry;
+    }
+    function pieceMaterialFor(bodyColor) {
+        if (!window.GELPYTO_MODEL)
+            return new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.4, metalness: 0.05 });
+        return [
+            new THREE.MeshStandardMaterial({ color: BEAK_COLOR, roughness: 0.45 }),
+            new THREE.MeshStandardMaterial({ color: EYE_COLOR, roughness: 0.25 }),
+            new THREE.MeshStandardMaterial({ color: bodyColor, roughness: 0.45 }),
+            new THREE.MeshStandardMaterial({ color: DETAIL_COLOR, roughness: 0.45 })
+        ];
+    }
 
     function buildMaterials() {
         cellMaterials.base = makeCellMaterial(0xffffff, 0.045);
@@ -79,9 +116,6 @@ if (THREE && OrbitControls) {
         cellMaterials.planeSecond = makeCellMaterial(SECOND_COLOR, PLANE_OPACITY);
         cellMaterials.cubeFirst = makeCellMaterial(FIRST_COLOR, CUBE_OPACITY, FIRST_COLOR);
         cellMaterials.cubeSecond = makeCellMaterial(SECOND_COLOR, CUBE_OPACITY, SECOND_COLOR);
-        pieceMaterials[1] = new THREE.MeshStandardMaterial({ color: FIRST_COLOR, roughness: 0.4, metalness: 0.05 });
-        pieceMaterials[-1] = new THREE.MeshStandardMaterial({ color: SECOND_COLOR, roughness: 0.4, metalness: 0.05 });
-        pieceMaterials[3] = new THREE.MeshStandardMaterial({ color: 0x9ca3af, roughness: 0.5, metalness: 0.05 });
     }
     function buildAxisNavigator() {
         axisScene = new THREE.Scene();
@@ -142,7 +176,11 @@ if (THREE && OrbitControls) {
         scene.add(light);
 
         cellGeometry = new THREE.BoxGeometry(CUBE_SIZE, CUBE_SIZE, CUBE_SIZE);
-        pieceGeometry = new THREE.SphereGeometry(CUBE_SIZE * 0.36, 18, 14);
+        pieceGeometry = buildPieceGeometry();
+        if (!pieceGeometry) {
+            pieceGeometry = new THREE.SphereGeometry(CUBE_SIZE * 0.36, 18, 14);
+            pieceScale = 1;
+        }
         for (let x = 0; x < SIZE; x += 1)
             for (let y = 0; y < SIZE; y += 1)
                 for (let z = 0; z < SIZE; z += 1) {
@@ -152,6 +190,16 @@ if (THREE && OrbitControls) {
                     scene.add(mesh);
                     cellMeshes[cellIndex(x, y, z)] = mesh;
                 }
+
+        const capacity = SIZE * SIZE * SIZE;
+        for (const [value, color] of [[1, FIRST_COLOR], [-1, SECOND_COLOR], [3, GRAY_COLOR]]) {
+            const instanced = new THREE.InstancedMesh(pieceGeometry, pieceMaterialFor(color), capacity);
+            instanced.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+            instanced.frustumCulled = false;
+            instanced.count = 0;
+            scene.add(instanced);
+            pieceInstances.set(value, instanced);
+        }
 
         const cursorGeometry = new THREE.BoxGeometry(CUBE_SIZE * 1.08, CUBE_SIZE * 1.08, CUBE_SIZE * 1.08);
         cursorBox = new THREE.LineSegments(new THREE.EdgesGeometry(cursorGeometry), new THREE.LineBasicMaterial({ color: 0xffff00 }));
@@ -295,6 +343,7 @@ if (THREE && OrbitControls) {
             const selected = new Set(state.selected || []);
             const territories = state.territories;
             interactive = Boolean(state.interactive);
+            const placed = new Map([[1, 0], [-1, 0], [3, 0]]);
             for (let cell = 0; cell < cellMeshes.length; cell += 1) {
                 const mesh = cellMeshes[cell];
                 const value = board[cell];
@@ -309,20 +358,19 @@ if (THREE && OrbitControls) {
                 if (selected.has(cell)) material = cellMaterials.selected;
                 mesh.material = material;
 
-                const existing = pieceMeshes.get(cell);
-                if (value === 1 || value === -1 || value === 3) {
-                    if (existing) {
-                        existing.material = pieceMaterials[value];
-                    } else {
-                        const piece = new THREE.Mesh(pieceGeometry, pieceMaterials[value]);
-                        piece.position.copy(mesh.position);
-                        scene.add(piece);
-                        pieceMeshes.set(cell, piece);
-                    }
-                } else if (existing) {
-                    scene.remove(existing);
-                    pieceMeshes.delete(cell);
-                }
+                if (!placed.has(value)) continue;
+                const instanced = pieceInstances.get(value);
+                const at = placed.get(value);
+                instanceDummy.position.copy(mesh.position);
+                instanceDummy.scale.setScalar(pieceScale);
+                instanceDummy.updateMatrix();
+                instanced.setMatrixAt(at, instanceDummy.matrix);
+                placed.set(value, at + 1);
+            }
+            for (const [value, count] of placed) {
+                const instanced = pieceInstances.get(value);
+                instanced.count = count;
+                instanced.instanceMatrix.needsUpdate = true;
             }
             if (territories) {
                 const strong = (regions, material) => {
