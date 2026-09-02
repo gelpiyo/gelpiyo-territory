@@ -15,7 +15,9 @@ import fs from 'node:fs';
 const SRC = process.argv[2] || 's_0.02_0.005.glb';
 const OUT = process.argv[3] || 'gelpyto-model.js';
 const TARGET_HEIGHT = 0.70;
-const FACE_ANGLE_DEG = 128;
+// 顔の向き。格子の立方体は軸に平行なので、90の倍数にして向きを揃えます。
+// 元モデルは -X 向き。90 で +Z、180 で +X、270 で -Z を向きます。
+const FACE_ANGLE_DEG = 90;
 
 function readGlb(path) {
   const buf = fs.readFileSync(path);

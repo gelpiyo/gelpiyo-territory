@@ -17,6 +17,8 @@ if (THREE && OrbitControls) {
     const SPACING = 0.94;
     const OFFSET = ((SIZE - 1) * SPACING) / 2;
     const AXIS_MARGIN = 12;
+    // 平行投影で画面の縦方向に見える範囲。格子の投影高さは約13なので少し余裕を持たせています。
+    const VIEW_SIZE = 20;
 
     // 陣地の表示濃度。平面陣は控えめ、立方陣ははっきり濃く発光させて区別します。
     const PLANE_OPACITY = 0.25;
@@ -258,8 +260,9 @@ if (THREE && OrbitControls) {
         moveCursorTo(data.x, data.y, data.z);
         emitSelect();
     }
+    // 軸ナビゲーターの表示領域（正方形）。矢印もこの領域に合わせて拡大縮小されます。
     function computeAxisSize(rect) {
-        return Math.round(Math.min(150, Math.max(88, Math.min(rect.width, rect.height) * 0.32)));
+        return Math.round(Math.min(225, Math.max(132, Math.min(rect.width, rect.height) * 0.48)));
     }
     function renderFrame() {
         frameHandle = requestAnimationFrame(renderFrame);
@@ -297,12 +300,16 @@ if (THREE && OrbitControls) {
             renderer.domElement.style.height = '100%';
             renderer.domElement.style.touchAction = 'none';
             container.appendChild(renderer.domElement);
-            camera = new THREE.PerspectiveCamera(55, 1, 0.1, 1000);
+            // 平行投影。透視投影だと格子の辺が画面上で収束し、
+            // 平行投影で描いている軸ナビゲーターの矢印と向きがずれます。
+            camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 200);
             camera.position.set(14, 14, 18);
             controls = new OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
             controls.dampingFactor = 0.05;
             controls.enablePan = false;
+            controls.minZoom = 0.35;
+            controls.maxZoom = 12;
 
             let startPoint = { x: 0, y: 0 };
             renderer.domElement.addEventListener('pointerdown', event => {
@@ -324,7 +331,12 @@ if (THREE && OrbitControls) {
             const width = Math.max(1, Math.floor(rect.width));
             const height = Math.max(1, Math.floor(rect.height));
             renderer.setSize(width, height, false);
-            camera.aspect = width / height;
+            const halfHeight = VIEW_SIZE / 2;
+            const halfWidth = halfHeight * (width / height);
+            camera.left = -halfWidth;
+            camera.right = halfWidth;
+            camera.top = halfHeight;
+            camera.bottom = -halfHeight;
             camera.updateProjectionMatrix();
             axisSize = computeAxisSize(rect);
         },
