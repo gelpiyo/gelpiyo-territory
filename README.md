@@ -171,11 +171,4 @@ const CUBE_OPACITY  = 0.50;   // 立方陣の濃さ（発光あり）
 ## 既知の注意点
 
 - **3D表示は `file://` では動きません。** ES モジュールが読み込めないためです。2Dはそのままダブルクリックで動きます
-- `index.html` の以下の2行は、ESモジュールを通常スクリプトとして読み込もうとして毎回コンソールに構文エラーを出しています。Three.js は `extra3d.js` が importmap 経由で正しく読み込むため、**この2行は削除して問題ありません**
-
-  ```html
-  <script src="/three/three.module.js"></script>
-  <script src="/three/addons/controls/OrbitControls.js"></script>
-  ```
-
 - 2Dは合法手が平均2.4手前後と少なめです。これは意図した仕様で、ルールは変更していません

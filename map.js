@@ -38,7 +38,7 @@ window.EVENT_MAPS = Object.freeze([
     "columns": 13,
     "rows": 11,
     "cells": [
-      ["W", "W", "X", "W", "W", "W", "W", "W", "W", "W", "W", "W", "W" ],
+      [ "W", "W", "X", "W", "W", "W", "W", "W", "W", "W", "W", "W", "W" ],
       [ "W", "X", "X", "X", "W", "W", "G", "W", "W", "G", "W", "G", "W" ],
       [ "W", "W", "X", "X", "W", "W", "W", "W", "W", "W", "G", "W", "W" ],
       [ "W", "W", "W", "W", "W", "B", "W", "R", "W", "W", "W", "W", "W" ],

@@ -109,7 +109,8 @@ if (THREE && OrbitControls) {
     }
 
     function buildMaterials() {
-        cellMaterials.base = makeCellMaterial(0xffffff, 0.045);
+        //cellMaterials.base = makeCellMaterial(0xffffff, 0.045);
+        cellMaterials.base = makeCellMaterial(0xffffff, 0.45);
         cellMaterials.blocked = makeCellMaterial(0x111827, 0.55);
         cellMaterials.guide = makeCellMaterial(0x22c55e, 0.3, 0x22c55e);
         cellMaterials.secondGuide = makeCellMaterial(0xf59e0b, 0.36, 0xf59e0b);
