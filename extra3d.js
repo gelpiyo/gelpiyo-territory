@@ -1,17 +1,17 @@
 // 3D view for エキストラ mode. extra.html の立方格子と軸ナビゲーターがベースです。
 // Three.js の読み込みに失敗した場合は window.EXTRA_3D_ERROR にメッセージを入れます。
 let THREE = null;
-let OrbitControls = null;
+let TrackballControls = null;
 
 try {
     THREE = await import('three');
-    ({ OrbitControls } = await import('three/addons/controls/OrbitControls.js'));
+    ({ TrackballControls } = await import('three/addons/controls/TrackballControls.js'));
 } catch (error) {
     window.EXTRA_3D_ERROR = 'Three.js を読み込めませんでした。three/ フォルダを確認し、ローカルサーバー経由で開いてください（file:// では読み込めません）。';
     console.error(error);
 }
 
-if (THREE && OrbitControls) {
+if (THREE && TrackballControls) {
     const SIZE = 9;
     const CUBE_SIZE = 0.9;
     const SPACING = 0.94;
@@ -121,10 +121,27 @@ if (THREE && OrbitControls) {
     }
     function buildAxisNavigator() {
         axisScene = new THREE.Scene();
+        //axisScene.background = new THREE.Color(0xffffff);
+        //axisScene.alpha = true;
         const size = 1.2;
         axisCamera = new THREE.OrthographicCamera(-size, size, size, -size, 0.1, 10);
         axisCamera.position.set(0, 0, 5);
         axisCamera.lookAt(0, 0, 0);
+
+        
+        // 軸ナビゲーターのシーン作成時に半透明の背景板を追加
+        const bgShapeGeometry = new THREE.PlaneGeometry(axisSize, axisSize);
+        const bgShapeMaterial = new THREE.MeshBasicMaterial({
+            color: 0x808080,     // 背景色（黒）
+            transparent: true,
+            opacity: 0.25,        // 透明度（0.0：完全透明 〜 1.0：不透明）
+            depthWrite: false
+          });
+        
+        const axisBgPanel = new THREE.Mesh(bgShapeGeometry, bgShapeMaterial);
+        axisBgPanel.position.z = -1; // 軸オブジェクトの後ろに配置
+        axisScene.add(axisBgPanel);
+
         axisGroup = new THREE.Group();
 
         const armLength = 1;
@@ -134,9 +151,9 @@ if (THREE && OrbitControls) {
         const coneGeometry = new THREE.ConeGeometry(tipRadius, coneLength, 16);
         const colliderGeometry = new THREE.SphereGeometry(0.3, 8, 8);
         const colliderMaterial = new THREE.MeshBasicMaterial({ visible: false });
-
+        
         const createAxis = (direction, color, axisName) => {
-            const material = new THREE.MeshBasicMaterial({ color });
+            const material = new THREE.MeshBasicMaterial({ color});
             const points = [direction.clone().multiplyScalar(-armLength), direction.clone().multiplyScalar(armLength - coneLength)];
             axisGroup.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(points), new THREE.LineBasicMaterial({ color })));
 
@@ -168,6 +185,7 @@ if (THREE && OrbitControls) {
         originDot.add(originCollider);
         axisGroup.add(originDot);
         axisScene.add(axisGroup);
+
     }
     function buildScene() {
         scene = new THREE.Scene();
@@ -267,16 +285,28 @@ if (THREE && OrbitControls) {
     function renderFrame() {
         frameHandle = requestAnimationFrame(renderFrame);
         controls.update();
+
         const width = renderer.domElement.clientWidth;
         const height = renderer.domElement.clientHeight;
+
+        // 1. メインシーンを描画
         renderer.setViewport(0, 0, width, height);
         renderer.setScissorTest(false);
+        renderer.clear();
         renderer.render(scene, camera);
+
+        // 2. 左下に軸ナビゲーターを重ね描き
         renderer.setViewport(AXIS_MARGIN, AXIS_MARGIN, axisSize, axisSize);
         renderer.setScissor(AXIS_MARGIN, AXIS_MARGIN, axisSize, axisSize);
         renderer.setScissorTest(true);
+        
+        renderer.clearDepth(); // 深度バッファのみ消去して重なりをリセット
+
         axisGroup.quaternion.copy(camera.quaternion).invert();
+
+        //renderer.autoClear = false; // 背景塗りつぶしをオフ
         renderer.render(axisScene, axisCamera);
+        //renderer.autoClear = true;  // 元に戻す
     }
 
     const view = {
@@ -293,8 +323,10 @@ if (THREE && OrbitControls) {
             buildMaterials();
             buildAxisNavigator();
             buildScene();
-            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            //renderer.setClearColor(0x000000, 0);
             renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+            renderer.autoClear = false;
             renderer.domElement.style.display = 'block';
             renderer.domElement.style.width = '100%';
             renderer.domElement.style.height = '100%';
@@ -304,10 +336,14 @@ if (THREE && OrbitControls) {
             // 平行投影で描いている軸ナビゲーターの矢印と向きがずれます。
             camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 200);
             camera.position.set(14, 14, 18);
-            controls = new OrbitControls(camera, renderer.domElement);
-            controls.enableDamping = true;
-            controls.dampingFactor = 0.05;
-            controls.enablePan = false;
+            controls = new TrackballControls(camera, renderer.domElement);
+            controls.rotateSpeed = 3.0; // 回転感度
+            controls.zoomSpeed = 1.2;   // ズーム感度
+            controls.panSpeed = 0.8;    // 平行移動感度
+            //controls = new OrbitControls(camera, renderer.domElement);
+            //controls.dampingFactor = 0.05;
+            //controls.enableDamping = true;
+            //controls.enablePan = false;
             controls.minZoom = 0.35;
             controls.maxZoom = 12;
 
@@ -323,14 +359,15 @@ if (THREE && OrbitControls) {
             if (!renderer || !targetContainer) return;
             container = targetContainer;
             if (renderer.domElement.parentElement !== container) container.appendChild(renderer.domElement);
-            this.resize();
+            this.resize();           
+            controls.handleResize(); // TrackballControls のリサイズ更新
         },
         resize() {
             if (!renderer || !container) return;
             const rect = container.getBoundingClientRect();
             const width = Math.max(1, Math.floor(rect.width));
             const height = Math.max(1, Math.floor(rect.height));
-            renderer.setSize(width, height, false);
+            renderer.setSize(width, height, false); 
             const halfHeight = VIEW_SIZE / 2;
             const halfWidth = halfHeight * (width / height);
             camera.left = -halfWidth;
