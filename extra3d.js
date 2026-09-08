@@ -132,7 +132,7 @@ if (THREE && TrackballControls) {
         // 軸ナビゲーターのシーン作成時に半透明の背景板を追加
         const bgShapeGeometry = new THREE.PlaneGeometry(axisSize, axisSize);
         const bgShapeMaterial = new THREE.MeshBasicMaterial({
-            color: 0x808080,     // 背景色（黒）
+            color: 0x404040,     // 背景色（黒）
             transparent: true,
             opacity: 0.25,        // 透明度（0.0：完全透明 〜 1.0：不透明）
             depthWrite: false
