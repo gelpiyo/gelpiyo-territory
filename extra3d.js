@@ -134,7 +134,7 @@ if (THREE && TrackballControls) {
         const bgShapeMaterial = new THREE.MeshBasicMaterial({
             color: 0x404040,     // 背景色（黒）
             transparent: true,
-            opacity: 0.25,        // 透明度（0.0：完全透明 〜 1.0：不透明）
+            opacity: 0.50,        // 透明度（0.0：完全透明 〜 1.0：不透明）
             depthWrite: false
           });
         
