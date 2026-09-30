@@ -64,6 +64,8 @@ if (THREE && TrackballControls) {
     let cursorBox = null;
     let frameHandle = 0;
     let axisSize = 140;
+    // 軸ナビゲーターを置く左右の位置。'left' なら左下、'right' なら右下です。
+    let axisSide = 'left';
     let selectHandler = null;
     let cursorHandler = null;
     let interactive = false;
@@ -247,9 +249,10 @@ if (THREE && TrackballControls) {
         const localX = event.clientX - rect.left;
         const localY = event.clientY - rect.top;
         const fromBottom = rect.height - localY;
-        if (localX >= AXIS_MARGIN && localX <= AXIS_MARGIN + axisSize && fromBottom >= AXIS_MARGIN && fromBottom <= AXIS_MARGIN + axisSize) {
+        const axisLeft = axisOriginX(rect.width);
+        if (localX >= axisLeft && localX <= axisLeft + axisSize && fromBottom >= AXIS_MARGIN && fromBottom <= AXIS_MARGIN + axisSize) {
             const pointer = new THREE.Vector2(
-                ((localX - AXIS_MARGIN) / axisSize) * 2 - 1,
+                ((localX - axisLeft) / axisSize) * 2 - 1,
                 ((fromBottom - AXIS_MARGIN) / axisSize) * 2 - 1
             );
             const raycaster = new THREE.Raycaster();
@@ -278,6 +281,11 @@ if (THREE && TrackballControls) {
         moveCursorTo(data.x, data.y, data.z);
         emitSelect();
     }
+    // 軸ナビゲーターの左端。axisSide が 'right' のときは画面の右下に寄せます。
+    function axisOriginX(width) {
+        if (axisSide !== 'right') return AXIS_MARGIN;
+        return Math.max(AXIS_MARGIN, width - AXIS_MARGIN - axisSize);
+    }
     // 軸ナビゲーターの表示領域（正方形）。矢印もこの領域に合わせて拡大縮小されます。
     function computeAxisSize(rect) {
         return Math.round(Math.min(225, Math.max(132, Math.min(rect.width, rect.height) * 0.48)));
@@ -295,9 +303,10 @@ if (THREE && TrackballControls) {
         renderer.clear();
         renderer.render(scene, camera);
 
-        // 2. 左下に軸ナビゲーターを重ね描き
-        renderer.setViewport(AXIS_MARGIN, AXIS_MARGIN, axisSize, axisSize);
-        renderer.setScissor(AXIS_MARGIN, AXIS_MARGIN, axisSize, axisSize);
+        // 2. 左下（設定により右下）に軸ナビゲーターを重ね描き
+        const axisX = axisOriginX(width);
+        renderer.setViewport(axisX, AXIS_MARGIN, axisSize, axisSize);
+        renderer.setScissor(axisX, AXIS_MARGIN, axisSize, axisSize);
         renderer.setScissorTest(true);
         
         renderer.clearDepth(); // 深度バッファのみ消去して重なりをリセット
@@ -313,6 +322,14 @@ if (THREE && TrackballControls) {
         ready: true,
         get cursor() {
             return { ...cursor };
+        },
+        get axisSide() {
+            return axisSide;
+        },
+        // 操作用矢印（軸ナビゲーター）を左下と右下のどちらに描くか。'left' / 'right'
+        setAxisSide(side) {
+            axisSide = side === 'right' ? 'right' : 'left';
+            return axisSide;
         },
         init(targetContainer) {
             if (renderer) {

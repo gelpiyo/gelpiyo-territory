@@ -43,6 +43,7 @@ const boardArea = document.querySelector('.board-area');
 const appElement = document.querySelector('.app');
 const board3dElement = document.getElementById('board-3d');
 const cursorInfoElement = document.getElementById('cursor-info');
+const axisSideToggle = document.getElementById('axis-side-toggle');
 const blackCubeElement = document.getElementById('black-cube');
 const whiteCubeElement = document.getElementById('white-cube');
 const themeButton = document.getElementById('theme-button');
@@ -67,6 +68,7 @@ const reducedMotionQuery = window.matchMedia ? window.matchMedia('(prefers-reduc
 let cellNodes = [];
 let renderedBoard = null;
 let gameStarted = false;
+let gameStartedAt = 0;
 let activeMap = null;
 let extraBoard = null;
 let extraPlayer = FIRST;
@@ -94,6 +96,20 @@ let gameConfig = {
     showGuide: true
 };
 
+function formatElapsed(ms) {
+    const totalSeconds = Math.max(0, Math.round(ms / 1000));
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    const parts = [];
+    if (hours > 0) parts.push(`${hours}時間`);
+    if (hours > 0 || minutes > 0) parts.push(`${minutes}分`);
+    parts.push(`${seconds}秒`);
+    return totalSeconds >= 60 ? `${parts.join('')}（${totalSeconds}秒）` : `${seconds}秒`;
+}
+function elapsedSinceStart() {
+    return gameStartedAt > 0 ? formatElapsed(Date.now() - gameStartedAt) : '-';
+}
 function playerName(player) {
     return player === FIRST ? '先攻' : '後攻';
 }
@@ -773,6 +789,7 @@ function endGame() {
     <div class="result-row"><span>先攻の陣取り</span><strong>${territories.firstCount}</strong></div>
     <div class="result-row"><span>後攻の陣取り</span><strong>${territories.secondCount}</strong></div>
     <div class="result-row"><span>総合判定</span><strong>${firstTotal} vs ${secondTotal}</strong></div>
+    <div class="result-row"><span>対局時間</span><strong>${elapsedSinceStart()}</strong></div>
     <div class="result-row"><span>対戦設定</span><strong>${getConfigLabel()}</strong></div>
     <div class="result-row"><span>候補ガイド</span><strong>${guideLabel(gameConfig.showGuide)}</strong></div>
   `;
@@ -845,6 +862,7 @@ async function startGameFromConfig() {
     try {
         gameConfig.aiLevel = normalizeAiLevel(gameConfig.aiLevel);
         gameConfig.showGuide = Boolean(gameConfig.showGuide);
+        gameStartedAt = Date.now();
         if (gameConfig.boardSize === EXTRA_BOARD_SIZE) {
             if (!isExtraReady()) {
                 showScreen('setup');
@@ -896,6 +914,16 @@ async function startGameFromConfig() {
 }
 function isExtraHumanTurn() {
     return !isAiMode() || extraPlayer === gameConfig.humanColor;
+}
+// 操作用矢印の表示位置（左下 / 右下）を切り替えます。
+function updateAxisSideToggle(side) {
+    axisSideToggle.textContent = side === 'right' ? '矢印：右下' : '矢印：左下';
+    axisSideToggle.setAttribute('aria-label', `操作用矢印は現在${side === 'right' ? '右下' : '左下'}です。${side === 'right' ? '左下' : '右下'}に移動します`);
+}
+function toggleAxisSide() {
+    if (!window.Extra3DView || !window.Extra3DView.ready) return;
+    const next = window.Extra3DView.axisSide === 'right' ? 'left' : 'right';
+    updateAxisSideToggle(window.Extra3DView.setAxisSide(next));
 }
 function updateCursorInfo(point) {
     cursorInfoElement.textContent = `カーソル位置: (${point.x + 1}, ${point.y + 1}, ${point.z + 1})`;
@@ -1006,6 +1034,7 @@ function endExtraGame() {
     <div class="result-row"><span>先攻の平面陣 / 立方陣</span><strong>${first.planes} / ${first.cubes}</strong></div>
     <div class="result-row"><span>後攻の平面陣 / 立方陣</span><strong>${second.planes} / ${second.cubes}</strong></div>
     <div class="result-row"><span>総合判定（駒＋面×3＋立×9）</span><strong>${first.total} vs ${second.total}</strong></div>
+    <div class="result-row"><span>対局時間</span><strong>${elapsedSinceStart()}</strong></div>
     <div class="result-row"><span>対戦設定</span><strong>${getConfigLabel()}</strong></div>
   `;
     showScreen('result');
@@ -1103,6 +1132,7 @@ function startExtraGame() {
     window.Extra3DView.init(board3dElement);
     window.Extra3DView.setOnSelect(handleExtraSelect);
     window.Extra3DView.setOnCursorChange(updateCursorInfo);
+    updateAxisSideToggle(window.Extra3DView.axisSide);
     window.Extra3DView.start();
     window.Extra3DView.resize();
     updateExtraUI('エキストラ（3D）開始！ X・Y・Zのどの向きでも相手駒を挟めます。');
@@ -1142,6 +1172,7 @@ function selectBoardKind(kind) {
 simpleSizeSelect.addEventListener('change', () => selectBoardKind('simple'));
 eventMapSelect.addEventListener('change', () => selectBoardKind(EVENT_BOARD_SIZE));
 openSetupButton.addEventListener('click', openSetup);
+axisSideToggle.addEventListener('click', toggleAxisSide);
 clearSelectionButton.addEventListener('click', () => {
     if (isExtraMode() && extraBoard) {
         extraSelected = [];

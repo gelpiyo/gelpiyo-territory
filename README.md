@@ -118,7 +118,7 @@ python -m http.server 8000
 | `extra-rules.js` | エキストラ（3D）のルールエンジン。外部依存なし |
 | `extra3d.js` | エキストラの3D描画（Three.js）。ESモジュール |
 | `gelpyto-model.js` | 3D駒のモデルデータ（量子化して埋め込み済み・27KB） |
-| `three/` | Three.js r160 本体と OrbitControls |
+| `three/` | Three.js r185.1 本体と TrackballControls |
 | `tools/build-gelpyto-model.mjs` | 3Dモデルの再生成スクリプト |
 | `images/` | 駒の画像と盤面の背景画像 |
 
