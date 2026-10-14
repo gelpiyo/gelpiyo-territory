@@ -60,6 +60,7 @@
         <button id="clear-selection-button" class="ghost" type="button">選択を取り消す</button>
         <button id="reset-button" class="ghost" type="button">最初から</button>
         <button id="open-setup-button" class="ghost" type="button">設定</button>
+        <button id="suspend-button" class="ghost" type="button" title="今の対局を保存してタイトルに戻ります">中断</button>
       </div>
 
       <details class="meta">
@@ -118,6 +119,8 @@
         <img src="images/unit_gray_piece.png" alt="中立の灰色の駒" />
       </div>
       <div class="title-actions">
+        <button id="title-resume-button" class="primary" type="button" hidden>つづきから</button>
+        <p id="title-resume-note" class="title-resume-note" hidden></p>
         <button id="title-start-button" class="primary" type="button">はじめる</button>
         <button id="title-skip-button" class="ghost tiny" type="button">操作説明をとばして設定へ</button>
       </div>

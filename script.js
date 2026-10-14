@@ -59,13 +59,21 @@ const setupSubmitButton = document.getElementById('setup-submit-button');
 const simpleSizeSelect = document.getElementById('simple-size-select');
 const eventMapSelect = document.getElementById('event-map-select');
 const boardKindNote = document.getElementById('board-kind-note');
+const suspendButton = document.getElementById('suspend-button');
+const titleResumeButton = document.getElementById('title-resume-button');
+const titleResumeNote = document.getElementById('title-resume-note');
 
 const THEME_STORAGE_KEY = 'gelpiyo-theme';
+// 「中断」で保存した対局データ。1件だけ持ち、「つづきから」で再開すると消します。
+const SAVE_STORAGE_KEY = 'gelpiyo-suspended-game';
+const SAVE_VERSION = 1;
 const PIECE_EXIT_MS = 260;
 const darkSchemeQuery = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
 const reducedMotionQuery = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
 
 let cellNodes = [];
+// 対局ごとに増やす番号。中断や「最初から」の後に、前の対局のAI処理が動かないようにします。
+let gameSession = 0;
 let renderedBoard = null;
 let gameStarted = false;
 let gameStartedAt = 0;
@@ -806,6 +814,7 @@ function updateUI(message='') {
     modeDisplay.textContent = getConfigLabel();
     applyBoardLayout();
     currentPlayerElement.textContent = gameOver ? '終了' : playerName(currentPlayer);
+    suspendButton.disabled = gameOver || !gameStarted;
     turnChip.classList.toggle('is-first', !gameOver && currentPlayer === FIRST);
     turnChip.classList.toggle('is-second', !gameOver && currentPlayer === SECOND);
     if (message)
@@ -823,7 +832,10 @@ function scheduleAiTurn() {
         return;
     aiThinking = true;
     updateUI();
+    const session = gameSession;
     window.setTimeout( () => {
+        if (session !== gameSession)
+            return;
         const actor = `AI（${aiLevelLabel(gameConfig.aiLevel)}）`;
         const move = chooseAiMove(currentPlayer);
         aiThinking = false;
@@ -850,6 +862,8 @@ function showScreen(name) {
     howtoOverlay.classList.toggle('hidden', name !== 'howto');
     setupOverlay.classList.toggle('hidden', name !== 'setup');
     resultOverlay.classList.toggle('hidden', name !== 'result');
+    if (name === 'title')
+        updateTitleResume();
     if (name === 'setup') {
         updateSetupFormVisibility();
         setupCancelButton.hidden = !gameStarted;
@@ -859,6 +873,7 @@ function openSetup() {
     showScreen('setup');
 }
 async function startGameFromConfig() {
+    gameSession += 1;
     try {
         gameConfig.aiLevel = normalizeAiLevel(gameConfig.aiLevel);
         gameConfig.showGuide = Boolean(gameConfig.showGuide);
@@ -989,6 +1004,7 @@ function updateExtraUI(message='') {
     passDisplayElement.textContent = extraPasses;
     passChip.classList.toggle('is-zero', extraPasses === 0);
     currentPlayerElement.textContent = extraGameOver ? '終了' : playerName(extraPlayer);
+    suspendButton.disabled = extraGameOver || !gameStarted;
     turnChip.classList.toggle('is-first', !extraGameOver && extraPlayer === FIRST);
     turnChip.classList.toggle('is-second', !extraGameOver && extraPlayer === SECOND);
     if (message)
@@ -1067,7 +1083,10 @@ function scheduleExtraAiTurn() {
         return;
     extraAiThinking = true;
     updateExtraUI();
+    const session = gameSession;
     window.setTimeout( () => {
+        if (session !== gameSession)
+            return;
         const actor = `AI（${aiLevelLabel(gameConfig.aiLevel)}）`;
         const move = window.Extra3DRules.chooseAiMove(extraBoard, extraPlayer, gameConfig.aiLevel);
         extraAiThinking = false;
@@ -1121,13 +1140,7 @@ function handleExtraSelect(cell) {
     applyExtraMove(chosen.move);
     handleExtraTurnProgress(formatExtraMoveMessage(actor, chosen.move));
 }
-function startExtraGame() {
-    extraBoard = window.Extra3DRules.createInitialBoard();
-    extraPlayer = FIRST;
-    extraGameOver = false;
-    extraAiThinking = false;
-    extraPasses = 0;
-    extraSelected = [];
+function showExtraView() {
     appElement.classList.add('mode-3d');
     window.Extra3DView.init(board3dElement);
     window.Extra3DView.setOnSelect(handleExtraSelect);
@@ -1135,11 +1148,172 @@ function startExtraGame() {
     updateAxisSideToggle(window.Extra3DView.axisSide);
     window.Extra3DView.start();
     window.Extra3DView.resize();
+}
+function startExtraGame() {
+    extraBoard = window.Extra3DRules.createInitialBoard();
+    extraPlayer = FIRST;
+    extraGameOver = false;
+    extraAiThinking = false;
+    extraPasses = 0;
+    extraSelected = [];
+    showExtraView();
     updateExtraUI('エキストラ（3D）開始！ X・Y・Zのどの向きでも相手駒を挟めます。');
     selectionStatusElement.textContent = '1手で2個の駒を選択してください。';
     const result = resolveExtraPasses([]);
     if (!result.ended)
         scheduleExtraAiTurn();
+}
+// --- 中断と再開 ---------------------------------------------------------
+// 盤面・手番・パス回数・経過時間・対戦設定を localStorage に保存します。
+// 選択途中の駒は保存せず、再開時はその手番の最初から選び直します。
+function readSavedGame() {
+    let data = null;
+    try {
+        data = JSON.parse(localStorage.getItem(SAVE_STORAGE_KEY));
+    } catch (error) {
+        return null;
+    }
+    if (!data || data.version !== SAVE_VERSION || !data.config)
+        return null;
+    if (data.mode === EXTRA_BOARD_SIZE)
+        return Array.isArray(data.extraBoard) ? data : null;
+    const valid = Array.isArray(data.board) && data.board.length > 0
+        && data.board.every(row => Array.isArray(row) && row.length === data.board[0].length);
+    return valid ? data : null;
+}
+function clearSavedGame() {
+    try {
+        localStorage.removeItem(SAVE_STORAGE_KEY);
+    } catch (error) {
+        // 保存できない環境では何もしません
+    }
+}
+function formatSavedAt(time) {
+    const date = new Date(time);
+    if (Number.isNaN(date.getTime()))
+        return '';
+    const pad = value => String(value).padStart(2, '0');
+    return `${date.getMonth() + 1}/${date.getDate()} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+function savedGameLabel(data) {
+    let board = `シンプル ${data.board ? data.board.length : ''} × ${data.board ? data.board.length : ''}`;
+    if (data.mode === EXTRA_BOARD_SIZE)
+        board = 'エキストラ（3D）';
+    else if (data.activeMap)
+        board = `イベント「${data.activeMap.name}」`;
+    const opponent = data.config.opponent === 'human' ? '人間対戦' : `AI対戦（${aiLevelLabel(data.config.aiLevel)}）`;
+    const player = data.mode === EXTRA_BOARD_SIZE ? data.extraPlayer : data.currentPlayer;
+    return `${board}・${opponent}・${playerName(player)}の番・${formatSavedAt(data.savedAt)} 中断`;
+}
+function updateTitleResume() {
+    const data = readSavedGame();
+    titleResumeButton.hidden = !data;
+    titleResumeNote.hidden = !data;
+    titleResumeNote.textContent = data ? savedGameLabel(data) : '';
+    // 中断データがあるときは「つづきから」を主ボタンにします
+    titleStartButton.classList.toggle('primary', !data);
+    titleStartButton.classList.toggle('ghost', Boolean(data));
+}
+function suspendGame() {
+    const extra = isExtraMode() && extraBoard;
+    if (!gameStarted || (extra ? extraGameOver : gameOver))
+        return;
+    if (readSavedGame() && !confirm('前回中断したゲームのデータがあります。上書きして中断しますか？'))
+        return;
+    const data = {
+        version: SAVE_VERSION,
+        savedAt: Date.now(),
+        elapsedMs: Date.now() - gameStartedAt,
+        config: { ...gameConfig },
+        mode: extra ? EXTRA_BOARD_SIZE : '2d'
+    };
+    if (extra) {
+        data.extraBoard = Array.from(extraBoard);
+        data.extraPlayer = extraPlayer;
+        data.extraPasses = extraPasses;
+        data.cursor = window.Extra3DView.cursor;
+    } else {
+        data.board = cloneBoard(board);
+        data.activeMap = activeMap ? { name: activeMap.name, background: activeMap.background || '' } : null;
+        data.boardSize = boardSize;
+        data.currentPlayer = currentPlayer;
+        data.consecutivePasses = consecutivePasses;
+    }
+    try {
+        localStorage.setItem(SAVE_STORAGE_KEY, JSON.stringify(data));
+    } catch (error) {
+        console.error(error);
+        alert('このブラウザでは対局データを保存できないため、中断できません。');
+        return;
+    }
+    gameSession += 1;
+    gameStarted = false;
+    aiThinking = false;
+    extraAiThinking = false;
+    selectedCells = [];
+    extraSelected = [];
+    if (window.Extra3DView && window.Extra3DView.ready)
+        window.Extra3DView.stop();
+    showScreen('title');
+}
+function resumeSavedGame() {
+    const data = readSavedGame();
+    if (!data) {
+        updateTitleResume();
+        return;
+    }
+    if (data.mode === EXTRA_BOARD_SIZE && !isExtraReady()) {
+        alert(extraUnavailableMessage());
+        return;
+    }
+    gameSession += 1;
+    gameConfig = {
+        ...gameConfig,
+        ...data.config,
+        aiLevel: normalizeAiLevel(data.config.aiLevel),
+        showGuide: Boolean(data.config.showGuide)
+    };
+    gameStartedAt = Date.now() - Math.max(0, Number(data.elapsedMs) || 0);
+    gameStarted = true;
+    clearSavedGame();
+    const message = '中断したゲームを再開しました。';
+    if (data.mode === EXTRA_BOARD_SIZE) {
+        const rules = window.Extra3DRules;
+        activeMap = null;
+        extraBoard = Int8Array.from(data.extraBoard);
+        extraPlayer = data.extraPlayer === SECOND ? SECOND : FIRST;
+        extraPasses = Number(data.extraPasses) || 0;
+        extraGameOver = false;
+        extraAiThinking = false;
+        extraSelected = [];
+        showScreen('game');
+        showExtraView();
+        const cursor = data.cursor;
+        if (cursor && [cursor.x, cursor.y, cursor.z].every(value => Number.isInteger(value) && value >= 0 && value < rules.SIZE))
+            window.Extra3DView.focusCell((cursor.x * rules.SIZE + cursor.y) * rules.SIZE + cursor.z);
+        updateExtraUI(message);
+        selectionStatusElement.textContent = '1手で2個の駒を選択してください。';
+        scheduleExtraAiTurn();
+        return;
+    }
+    appElement.classList.remove('mode-3d');
+    if (window.Extra3DView && window.Extra3DView.ready)
+        window.Extra3DView.stop();
+    board = cloneBoard(data.board);
+    boardRows = board.length;
+    boardCols = board[0].length;
+    boardSize = Number(data.boardSize) || Math.max(boardRows, boardCols);
+    activeMap = data.activeMap ? { name: String(data.activeMap.name), background: data.activeMap.background || '' } : null;
+    currentPlayer = data.currentPlayer === SECOND ? SECOND : FIRST;
+    consecutivePasses = Number(data.consecutivePasses) || 0;
+    gameOver = false;
+    aiThinking = false;
+    selectedCells = [];
+    renderedBoard = null;
+    showScreen('game');
+    updateUI(message);
+    selectionStatusElement.textContent = '1手で2個の駒を選択してください。';
+    scheduleAiTurn();
 }
 setupForm.addEventListener('submit', (event) => {
     event.preventDefault();
@@ -1172,6 +1346,8 @@ function selectBoardKind(kind) {
 simpleSizeSelect.addEventListener('change', () => selectBoardKind('simple'));
 eventMapSelect.addEventListener('change', () => selectBoardKind(EVENT_BOARD_SIZE));
 openSetupButton.addEventListener('click', openSetup);
+suspendButton.addEventListener('click', suspendGame);
+titleResumeButton.addEventListener('click', resumeSavedGame);
 axisSideToggle.addEventListener('click', toggleAxisSide);
 clearSelectionButton.addEventListener('click', () => {
     if (isExtraMode() && extraBoard) {
