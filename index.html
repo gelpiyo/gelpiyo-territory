@@ -61,6 +61,8 @@
         <button id="reset-button" class="ghost" type="button">最初から</button>
         <button id="open-setup-button" class="ghost" type="button">設定</button>
         <button id="suspend-button" class="ghost" type="button" title="今の対局を保存してタイトルに戻ります">中断</button>
+        <button id="show-result-button" class="ghost" type="button" title="対局結果の画面をもう一度表示します" hidden>結果を見る</button>
+        <button id="open-history-button" class="ghost" type="button" title="直近5件の対局結果を表示します">対局の記録</button>
       </div>
 
       <details class="meta">
@@ -123,6 +125,7 @@
         <p id="title-resume-note" class="title-resume-note" hidden></p>
         <button id="title-start-button" class="primary" type="button">はじめる</button>
         <button id="title-skip-button" class="ghost tiny" type="button">操作説明をとばして設定へ</button>
+        <button id="title-history-button" class="ghost tiny" type="button">対局の記録</button>
       </div>
     </div>
   </div>
@@ -278,8 +281,20 @@
       <p id="result-summary" class="result-summary">ゲーム終了</p>
       <div id="result-detail" class="result-detail">-</div>
       <div class="result-actions">
+        <button id="result-history-button" class="ghost" type="button">対局の記録</button>
         <button id="result-setup-button" class="ghost" type="button">設定を変更する</button>
         <button id="result-restart-button" class="primary" type="button">同じ設定で再戦</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="history-overlay" class="overlay hidden" aria-modal="true" role="dialog" aria-labelledby="history-title">
+    <div class="modal-card history-card">
+      <h2 id="history-title">対局の記録</h2>
+      <p class="setup-text">決着した対局の結果を、新しい順に直近5件まで残しています。</p>
+      <div id="history-list" class="history-list"></div>
+      <div class="setup-actions">
+        <button id="history-close-button" class="primary" type="button">閉じる</button>
       </div>
     </div>
   </div>

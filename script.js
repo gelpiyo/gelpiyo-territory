@@ -60,6 +60,13 @@ const simpleSizeSelect = document.getElementById('simple-size-select');
 const eventMapSelect = document.getElementById('event-map-select');
 const boardKindNote = document.getElementById('board-kind-note');
 const suspendButton = document.getElementById('suspend-button');
+const showResultButton = document.getElementById('show-result-button');
+const historyOverlay = document.getElementById('history-overlay');
+const historyList = document.getElementById('history-list');
+const historyCloseButton = document.getElementById('history-close-button');
+const openHistoryButton = document.getElementById('open-history-button');
+const titleHistoryButton = document.getElementById('title-history-button');
+const resultHistoryButton = document.getElementById('result-history-button');
 const titleResumeButton = document.getElementById('title-resume-button');
 const titleResumeNote = document.getElementById('title-resume-note');
 
@@ -67,6 +74,9 @@ const THEME_STORAGE_KEY = 'gelpiyo-theme';
 // 「中断」で保存した対局データ。1件だけ持ち、「つづきから」で再開すると消します。
 const SAVE_STORAGE_KEY = 'gelpiyo-suspended-game';
 const SAVE_VERSION = 1;
+// 決着した対局の結果（結果画面の内容と決着した日時）。新しい順に直近5件だけ残します。
+const HISTORY_STORAGE_KEY = 'gelpiyo-result-history';
+const HISTORY_LIMIT = 5;
 const PIECE_EXIT_MS = 260;
 const darkSchemeQuery = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
 const reducedMotionQuery = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
@@ -789,19 +799,17 @@ function endGame() {
     if (secondTotal > firstTotal)
         summary = '後攻の勝ち';
     updateUI(`ゲーム終了。${summary}！`);
-    resultSummary.textContent = `${summary}！`;
-    resultDetail.innerHTML = `
-    <div class="result-row"><span>盤面サイズ</span><strong>${boardCols} × ${boardRows}</strong></div>
-    <div class="result-row"><span>先攻の駒数</span><strong>${counts.first}</strong></div>
-    <div class="result-row"><span>後攻の駒数</span><strong>${counts.second}</strong></div>
-    <div class="result-row"><span>先攻の陣取り</span><strong>${territories.firstCount}</strong></div>
-    <div class="result-row"><span>後攻の陣取り</span><strong>${territories.secondCount}</strong></div>
-    <div class="result-row"><span>総合判定</span><strong>${firstTotal} vs ${secondTotal}</strong></div>
-    <div class="result-row"><span>対局時間</span><strong>${elapsedSinceStart()}</strong></div>
-    <div class="result-row"><span>対戦設定</span><strong>${getConfigLabel()}</strong></div>
-    <div class="result-row"><span>候補ガイド</span><strong>${guideLabel(gameConfig.showGuide)}</strong></div>
-  `;
-    showScreen('result');
+    showResult(`${summary}！`, [
+        ['盤面サイズ', `${boardCols} × ${boardRows}`],
+        ['先攻の駒数', counts.first],
+        ['後攻の駒数', counts.second],
+        ['先攻の陣取り', territories.firstCount],
+        ['後攻の陣取り', territories.secondCount],
+        ['総合判定', `${firstTotal} vs ${secondTotal}`],
+        ['対局時間', elapsedSinceStart()],
+        ['対戦設定', getConfigLabel()],
+        ['候補ガイド', guideLabel(gameConfig.showGuide)]
+    ]);
 }
 function updateUI(message='') {
     const counts = countPieces();
@@ -815,6 +823,7 @@ function updateUI(message='') {
     applyBoardLayout();
     currentPlayerElement.textContent = gameOver ? '終了' : playerName(currentPlayer);
     suspendButton.disabled = gameOver || !gameStarted;
+    updateResultButton(gameOver);
     turnChip.classList.toggle('is-first', !gameOver && currentPlayer === FIRST);
     turnChip.classList.toggle('is-second', !gameOver && currentPlayer === SECOND);
     if (message)
@@ -862,12 +871,111 @@ function showScreen(name) {
     howtoOverlay.classList.toggle('hidden', name !== 'howto');
     setupOverlay.classList.toggle('hidden', name !== 'setup');
     resultOverlay.classList.toggle('hidden', name !== 'result');
+    historyOverlay.classList.toggle('hidden', name !== 'history');
+    if (name === 'history') {
+        renderHistory();
+        historyOverlay.querySelector('.modal-card').scrollTop = 0;
+    }
     if (name === 'title')
         updateTitleResume();
     if (name === 'setup') {
         updateSetupFormVisibility();
         setupCancelButton.hidden = !gameStarted;
     }
+}
+// --- 結果画面と対局の記録 ---------------------------------------------------
+// 結果画面に勝敗と各項目を表示し、同じ内容を決着した日時と一緒に記録します。
+function showResult(summary, rows) {
+    resultSummary.textContent = summary;
+    renderResultRows(resultDetail, rows);
+    recordResult(summary, rows);
+    showScreen('result');
+}
+// 項目は文字として入れます（記録を読み戻したときに HTML として解釈されないように）。
+function renderResultRows(container, rows) {
+    container.replaceChildren();
+    for (const [label, value] of rows) {
+        const row = document.createElement('div');
+        row.className = 'result-row';
+        const name = document.createElement('span');
+        name.textContent = String(label);
+        const text = document.createElement('strong');
+        text.textContent = String(value);
+        row.append(name, text);
+        container.appendChild(row);
+    }
+}
+function readResultHistory() {
+    let list = null;
+    try {
+        list = JSON.parse(localStorage.getItem(HISTORY_STORAGE_KEY));
+    } catch (error) {
+        return [];
+    }
+    if (!Array.isArray(list))
+        return [];
+    return list.filter(entry => entry && Number.isFinite(entry.finishedAt) && typeof entry.summary === 'string' && Array.isArray(entry.rows)
+        && entry.rows.every(row => Array.isArray(row) && row.length === 2)).slice(0, HISTORY_LIMIT);
+}
+function recordResult(summary, rows) {
+    const entry = {
+        finishedAt: Date.now(),
+        summary,
+        rows: rows.map(([label, value]) => [String(label), String(value)])
+    };
+    const list = [entry, ...readResultHistory()].slice(0, HISTORY_LIMIT);
+    try {
+        localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(list));
+    } catch (error) {
+        // 保存できない環境では記録だけ諦めます（結果画面はそのまま表示します）
+    }
+}
+function formatHistoryTime(time) {
+    const date = new Date(time);
+    if (Number.isNaN(date.getTime()))
+        return '';
+    const pad = value => String(value).padStart(2, '0');
+    return `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+function renderHistory() {
+    historyList.replaceChildren();
+    const list = readResultHistory();
+    if (list.length === 0) {
+        const empty = document.createElement('p');
+        empty.className = 'history-empty';
+        empty.textContent = 'まだ記録がありません。対局が決着すると、ここに直近5件まで残ります。';
+        historyList.appendChild(empty);
+        return;
+    }
+    list.forEach((entry, index) => {
+        const item = document.createElement('section');
+        item.className = 'history-entry';
+        const head = document.createElement('div');
+        head.className = 'history-head';
+        const time = document.createElement('span');
+        time.className = 'history-time';
+        time.textContent = `${index + 1}. ${formatHistoryTime(entry.finishedAt)} 決着`;
+        const summary = document.createElement('span');
+        summary.className = 'history-summary';
+        summary.textContent = entry.summary;
+        head.append(time, summary);
+        const detail = document.createElement('div');
+        detail.className = 'result-detail';
+        renderResultRows(detail, entry.rows);
+        item.append(head, detail);
+        historyList.appendChild(item);
+    });
+}
+// 対局の記録は、開いた画面（タイトル・対局・結果）に「閉じる」で戻ります。
+let historyReturnScreen = 'game';
+function openHistory(from) {
+    historyReturnScreen = from;
+    showScreen('history');
+}
+// 決着後は「中断」の代わりに「結果を見る」を出し、盤面を確認した後でも結果画面を開き直せるようにします。
+function updateResultButton(over) {
+    suspendButton.hidden = over;
+    showResultButton.hidden = !over;
 }
 function openSetup() {
     showScreen('setup');
@@ -1005,6 +1113,7 @@ function updateExtraUI(message='') {
     passChip.classList.toggle('is-zero', extraPasses === 0);
     currentPlayerElement.textContent = extraGameOver ? '終了' : playerName(extraPlayer);
     suspendButton.disabled = extraGameOver || !gameStarted;
+    updateResultButton(extraGameOver);
     turnChip.classList.toggle('is-first', !extraGameOver && extraPlayer === FIRST);
     turnChip.classList.toggle('is-second', !extraGameOver && extraPlayer === SECOND);
     if (message)
@@ -1042,18 +1151,16 @@ function endExtraGame() {
     if (first.total > second.total) summary = '先攻の勝ち';
     if (second.total > first.total) summary = '後攻の勝ち';
     updateExtraUI(`ゲーム終了。${summary}！`);
-    resultSummary.textContent = `${summary}！`;
-    resultDetail.innerHTML = `
-    <div class="result-row"><span>盤面</span><strong>エキストラ ${rules.SIZE} × ${rules.SIZE} × ${rules.SIZE}</strong></div>
-    <div class="result-row"><span>先攻の駒数</span><strong>${first.pieces}</strong></div>
-    <div class="result-row"><span>後攻の駒数</span><strong>${second.pieces}</strong></div>
-    <div class="result-row"><span>先攻の平面陣 / 立方陣</span><strong>${first.planes} / ${first.cubes}</strong></div>
-    <div class="result-row"><span>後攻の平面陣 / 立方陣</span><strong>${second.planes} / ${second.cubes}</strong></div>
-    <div class="result-row"><span>総合判定（駒＋面×3＋立×9）</span><strong>${first.total} vs ${second.total}</strong></div>
-    <div class="result-row"><span>対局時間</span><strong>${elapsedSinceStart()}</strong></div>
-    <div class="result-row"><span>対戦設定</span><strong>${getConfigLabel()}</strong></div>
-  `;
-    showScreen('result');
+    showResult(`${summary}！`, [
+        ['盤面', `エキストラ ${rules.SIZE} × ${rules.SIZE} × ${rules.SIZE}`],
+        ['先攻の駒数', first.pieces],
+        ['後攻の駒数', second.pieces],
+        ['先攻の平面陣 / 立方陣', `${first.planes} / ${first.cubes}`],
+        ['後攻の平面陣 / 立方陣', `${second.planes} / ${second.cubes}`],
+        ['総合判定（駒＋面×3＋立×9）', `${first.total} vs ${second.total}`],
+        ['対局時間', elapsedSinceStart()],
+        ['対戦設定', getConfigLabel()]
+    ]);
 }
 function resolveExtraPasses(messages=[]) {
     const rules = window.Extra3DRules;
@@ -1347,6 +1454,11 @@ simpleSizeSelect.addEventListener('change', () => selectBoardKind('simple'));
 eventMapSelect.addEventListener('change', () => selectBoardKind(EVENT_BOARD_SIZE));
 openSetupButton.addEventListener('click', openSetup);
 suspendButton.addEventListener('click', suspendGame);
+showResultButton.addEventListener('click', () => showScreen('result'));
+openHistoryButton.addEventListener('click', () => openHistory('game'));
+titleHistoryButton.addEventListener('click', () => openHistory('title'));
+resultHistoryButton.addEventListener('click', () => openHistory('result'));
+historyCloseButton.addEventListener('click', () => showScreen(historyReturnScreen));
 titleResumeButton.addEventListener('click', resumeSavedGame);
 axisSideToggle.addEventListener('click', toggleAxisSide);
 clearSelectionButton.addEventListener('click', () => {

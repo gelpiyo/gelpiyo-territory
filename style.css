@@ -984,6 +984,48 @@ legend {
     color: var(--muted);
 }
 
+/* --- 対局の記録 ------------------------------------------------------- */
+
+.history-list {
+    display: grid;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.history-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+    margin-bottom: 6px;
+}
+
+.history-time {
+    color: var(--muted);
+    font-size: .8rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.history-summary {
+    font-weight: 600;
+}
+
+.history-entry .result-detail {
+    margin-bottom: 0;
+}
+
+.history-empty {
+    margin: 0;
+    padding: 14px;
+    border-radius: 12px;
+    background: var(--surface-soft);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-size: .86rem;
+    line-height: 1.6;
+    text-align: center;
+}
+
 /* --- Wide screens: side panel keeps full height for the board ---------- */
 
 @media (min-width: 720px) {

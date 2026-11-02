@@ -39,6 +39,8 @@ python -m http.server 8000
 
 - 操作説明の「タイトルに戻る」、設定の「操作説明を見る」でいつでも行き来できます
 - 対局中に「設定」を押した場合だけ「対局に戻る」が出るので、変更せず盤面へ戻れます
+- 決着後は、結果画面の「設定を変更する」→「対局に戻る」で決着時の盤面を確認できます。対局画面の操作ボタンの列（Web版は操作パネル、Godot版は盤面の下）では「中断」の代わりに「結果を見る」が出るので、いつでも結果画面を開き直せます（Web版・Godot版とも同じ）
+- 決着した対局の結果（結果画面の内容）と決着した日時を、新しい順に直近5件まで端末に残します。タイトル画面・対局画面（Web版は操作ボタンの列、Godot版は「対戦設定の詳細」「ルール」の並び）・結果画面の「対局の記録」で一覧を開け、「閉じる」で開いた画面に戻ります（Web版はブラウザの localStorage、Godot版は端末の保存領域 `user://result_history.json`）
 
 ---
 
@@ -191,7 +193,7 @@ const CUBE_OPACITY  = 0.50;   // 立方陣の濃さ（発光あり）
 | `godot/game/` | 対局の進行（`match_2d.gd` / `match_3d.gd`）、マップ読み込み、中断データの保存 |
 | `godot/ui/` | 2D盤・3D盤の表示、配色（`style.css` の色）、3D駒のメッシュ |
 | `godot/data/` | `map.js` と `gelpyto-model.js` から書き出した JSON |
-| `godot/tests/` | Web版とのルール照合テスト（`rules_check.gd`）、説明画面などのフリックスクロールの確認（`flick_scroll_check.gd`、ウィンドウを開いて実行） |
+| `godot/tests/` | Web版とのルール照合テスト（`rules_check.gd`）、説明画面などのフリックスクロールの確認（`flick_scroll_check.gd`）、決着後の結果画面の開き直しの確認（`result_return_check.gd`）、対局の記録の確認（`result_history_check.gd`）。`rules_check.gd` 以外はウィンドウを開いて実行（このPCの記録は退避して元に戻します） |
 | `godot/images` | 作業フォルダ直下の `images/` へのリンク（実体は Web版と共用） |
 | `godot/project.godot` / `godot/export_presets.cfg` | Godot のプロジェクト設定 / iOS の書き出し設定 |
 | `godot/addons/godot_ai/` | エディタを Claude から操作するための godot-ai プラグイン（アプリの書き出し時には取り除かれます） |
