@@ -69,6 +69,38 @@ const titleHistoryButton = document.getElementById('title-history-button');
 const resultHistoryButton = document.getElementById('result-history-button');
 const titleResumeButton = document.getElementById('title-resume-button');
 const titleResumeNote = document.getElementById('title-resume-note');
+const titleRankingButton = document.getElementById('title-ranking-button');
+const titlePlayerName = document.getElementById('title-player-name');
+const titleNameButton = document.getElementById('title-name-button');
+const resultRankingButton = document.getElementById('result-ranking-button');
+const resultRankingNote = document.getElementById('result-ranking-note');
+const resultRankingStatus = document.getElementById('result-ranking-status');
+const accountOverlay = document.getElementById('account-overlay');
+const accountGateText = document.getElementById('account-gate-text');
+const accountForm = document.getElementById('account-form');
+const accountNameInput = document.getElementById('account-name-input');
+const accountNameError = document.getElementById('account-name-error');
+const accountStatus = document.getElementById('account-status');
+const accountGateBackButton = document.getElementById('account-gate-back-button');
+const accountGateSkipButton = document.getElementById('account-gate-skip-button');
+const accountCloseButton = document.getElementById('account-close-button');
+const accountSubmitButton = document.getElementById('account-submit-button');
+const accountCodeSection = document.getElementById('account-code-section');
+const accountCodeValue = document.getElementById('account-code-value');
+const accountCodeCopyButton = document.getElementById('account-code-copy-button');
+const accountCodeReissueButton = document.getElementById('account-code-reissue-button');
+const accountCodeNotice = document.getElementById('account-code-notice');
+const recoverForm = document.getElementById('recover-form');
+const recoverCodeInput = document.getElementById('recover-code-input');
+const recoverButton = document.getElementById('recover-button');
+const recoverNotice = document.getElementById('recover-notice');
+const rankingOverlay = document.getElementById('ranking-overlay');
+const rankingPlayerText = document.getElementById('ranking-player-text');
+const rankingNameButton = document.getElementById('ranking-name-button');
+const rankingMyBest = document.getElementById('ranking-my-best');
+const rankingStatus = document.getElementById('ranking-status');
+const rankingList = document.getElementById('ranking-list');
+const rankingCloseButton = document.getElementById('ranking-close-button');
 
 const THEME_STORAGE_KEY = 'gelpiyo-theme';
 // 「中断」で保存した対局データ。1件だけ持ち、「つづきから」で再開すると消します。
@@ -77,9 +109,20 @@ const SAVE_VERSION = 1;
 // 決着した対局の結果（結果画面の内容と決着した日時）。新しい順に直近5件だけ残します。
 const HISTORY_STORAGE_KEY = 'gelpiyo-result-history';
 const HISTORY_LIMIT = 5;
+const SNAPSHOT_PLATFORM = 'web';
+const SNAPSHOT_RESTORE_FAILED = 'この端末に控えを書き込めませんでした。';
 const PIECE_EXIT_MS = 260;
 const darkSchemeQuery = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
 const reducedMotionQuery = window.matchMedia ? window.matchMedia('(prefers-reduced-motion: reduce)') : null;
+// タイマーは呼ぶたびに window から引くので、テストでは window の側で差し替えられます。
+const onlineTimer = { set: (callback, ms) => window.setTimeout(callback, ms), clear: id => window.clearTimeout(id) };
+const online = window.GelpiyoOnline.create({
+    api: window.GelpiyoServer.create(window.GelpiyoServerConfig, { timer: onlineTimer }),
+    account: window.GelpiyoAccount,
+    snapshot: { collect: () => collectSaveSnapshot(), restore: snapshot => restoreSaveSnapshot(snapshot) },
+    platform: SNAPSHOT_PLATFORM,
+    timer: onlineTimer
+});
 
 let cellNodes = [];
 // 対局ごとに増やす番号。中断や「最初から」の後に、前の対局のAI処理が動かないようにします。
@@ -87,6 +130,11 @@ let gameSession = 0;
 let renderedBoard = null;
 let gameStarted = false;
 let gameStartedAt = 0;
+// 「つづきから」で再開した対局か。ランキングの記録に添えるため、その対局が終わるまで保ちます。
+let gameResumed = false;
+// 対局のランキングの札 {runId, startedAt, error}。中断データにも入れ、「つづきから」では取り直さずにそのまま使います。
+let gameRanking = { ...window.GelpiyoOnline.NO_TICKET };
+let currentScreen = '';
 let activeMap = null;
 let extraBoard = null;
 let extraPlayer = FIRST;
@@ -125,8 +173,11 @@ function formatElapsed(ms) {
     parts.push(`${seconds}秒`);
     return totalSeconds >= 60 ? `${parts.join('')}（${totalSeconds}秒）` : `${seconds}秒`;
 }
-function elapsedSinceStart() {
-    return gameStartedAt > 0 ? formatElapsed(Date.now() - gameStartedAt) : '-';
+function playMsSinceStart() {
+    return gameStartedAt > 0 ? Date.now() - gameStartedAt : 0;
+}
+function elapsedSinceStart(playMs = playMsSinceStart()) {
+    return gameStartedAt > 0 ? formatElapsed(playMs) : '-';
 }
 function playerName(player) {
     return player === FIRST ? '先攻' : '後攻';
@@ -789,6 +840,7 @@ function endGame() {
     gameOver = true;
     aiThinking = false;
     selectedCells = [];
+    const playMs = playMsSinceStart();
     const counts = countPieces();
     const territories = getTerritoryRegions();
     const firstTotal = counts.first + territories.firstCount * 3;
@@ -799,6 +851,7 @@ function endGame() {
     if (secondTotal > firstTotal)
         summary = '後攻の勝ち';
     updateUI(`ゲーム終了。${summary}！`);
+    const challenge = challengeResultFor(planeScore(counts.first, territories.firstCount, firstTotal), planeScore(counts.second, territories.secondCount, secondTotal), playMs);
     showResult(`${summary}！`, [
         ['盤面サイズ', `${boardCols} × ${boardRows}`],
         ['先攻の駒数', counts.first],
@@ -806,10 +859,10 @@ function endGame() {
         ['先攻の陣取り', territories.firstCount],
         ['後攻の陣取り', territories.secondCount],
         ['総合判定', `${firstTotal} vs ${secondTotal}`],
-        ['対局時間', elapsedSinceStart()],
+        ['対局時間', elapsedSinceStart(playMs)],
         ['対戦設定', getConfigLabel()],
         ['候補ガイド', guideLabel(gameConfig.showGuide)]
-    ]);
+    ], challenge);
 }
 function updateUI(message='') {
     const counts = countPieces();
@@ -867,29 +920,67 @@ function handleTurnProgress(message='') {
     scheduleAiTurn();
 }
 function showScreen(name) {
+    currentScreen = name;
     titleOverlay.classList.toggle('hidden', name !== 'title');
     howtoOverlay.classList.toggle('hidden', name !== 'howto');
     setupOverlay.classList.toggle('hidden', name !== 'setup');
     resultOverlay.classList.toggle('hidden', name !== 'result');
     historyOverlay.classList.toggle('hidden', name !== 'history');
+    accountOverlay.classList.toggle('hidden', name !== 'account');
+    rankingOverlay.classList.toggle('hidden', name !== 'ranking');
+    prepareScreen(name);
+}
+function prepareScreen(name) {
     if (name === 'history') {
         renderHistory();
         historyOverlay.querySelector('.modal-card').scrollTop = 0;
     }
-    if (name === 'title')
+    if (name === 'ranking')
+        prepareRankingScreen();
+    if (name === 'account')
+        prepareAccountScreen();
+    if (name === 'title') {
         updateTitleResume();
+        renderPlayerName();
+    }
     if (name === 'setup') {
         updateSetupFormVisibility();
         setupCancelButton.hidden = !gameStarted;
     }
 }
 // --- 結果画面と対局の記録 ---------------------------------------------------
-// 結果画面に勝敗と各項目を表示し、同じ内容を決着した日時と一緒に記録します。
-function showResult(summary, rows) {
+// 結果画面に勝敗と各項目を表示し、同じ内容を決着した日時と一緒に記録します（ランキングの注記と送った結果は記録しません）。
+function showResult(summary, rows, challenge) {
     resultSummary.textContent = summary;
     renderResultRows(resultDetail, rows);
+    resultRankingNote.textContent = challenge.note;
     recordResult(summary, rows);
     showScreen('result');
+    startResultRanking(challenge);
+    online.backup();
+}
+function setStatusLine(element, text) {
+    element.textContent = text;
+    element.hidden = text === '';
+}
+function onlineText(key, params) {
+    return window.GelpiyoServer.formatText(key, params);
+}
+function startResultRanking(challenge) {
+    const ticket = gameRanking;
+    const plan = online.planResult(challenge, ticket);
+    setStatusLine(resultRankingStatus, plan.text);
+    if (plan.send)
+        sendRankedResult(challenge, ticket, gameSession);
+}
+async function sendRankedResult(challenge, ticket, session) {
+    try {
+        const message = await online.finishResult(challenge, ticket);
+        if (session === gameSession)
+            setStatusLine(resultRankingStatus, message);
+    } catch (error) {
+        console.error('ランキングへ結果を送る処理で失敗しました。', error);
+    }
 }
 // 項目は文字として入れます（記録を読み戻したときに HTML として解釈されないように）。
 function renderResultRows(container, rows) {
@@ -977,8 +1068,360 @@ function updateResultButton(over) {
     suspendButton.hidden = over;
     showResultButton.hidden = !over;
 }
+// --- ランキングとプレイヤー名 -------------------------------------------------
+// self は人間側（AI戦では「あなたの手番」側）、opponent は AI 側です。
+function buildChallengeInput(firstScore, secondScore, playMs) {
+    const selfIsFirst = gameConfig.humanColor !== SECOND;
+    return {
+        vs: isAiMode() ? 'ai' : 'human',
+        side: selfIsFirst ? 'first' : 'second',
+        ai: gameConfig.aiLevel,
+        ...challengeBoard(),
+        guide: Boolean(gameConfig.showGuide),
+        resumed: gameResumed,
+        playMs,
+        self: selfIsFirst ? firstScore : secondScore,
+        opponent: selfIsFirst ? secondScore : firstScore
+    };
+}
+function challengeBoard() {
+    if (isExtraMode()) {
+        const size = window.Extra3DRules.SIZE;
+        return { mode: 'extra', board: `${size}x${size}x${size}` };
+    }
+    if (activeMap)
+        return { mode: 'event', board: activeMap.name };
+    return { mode: 'simple', board: `${boardCols}x${boardRows}` };
+}
+function planeScore(pieces, regions, total) {
+    return { pieces, regions, cubes: 0, total };
+}
+function extraScore(score) {
+    return { pieces: score.pieces, regions: score.planes, cubes: score.cubes, total: score.total };
+}
+function challengeResultFor(firstScore, secondScore, playMs) {
+    return window.GelpiyoRanking.buildChallengeResult(buildChallengeInput(firstScore, secondScore, playMs));
+}
+function renderPlayerName() {
+    const name = window.GelpiyoAccount.readAccount().name;
+    titlePlayerName.textContent = name ? `プレイヤー名：${name}` : 'プレイヤー名：未登録';
+    titleNameButton.textContent = name ? '名前を変える' : '名前を決める';
+    rankingPlayerText.textContent = name ? `あなた：${name}` : '名前が未登録です。ランキングに参加するには名前を決めてください。';
+    rankingNameButton.textContent = name ? '名前を変える' : '名前を決める';
+}
+function rankingRowTexts(row, isMine) {
+    const name = String(row.name ?? '');
+    return {
+        rank: `${row.rank}位`,
+        name: isMine ? `${name}（あなた）` : name,
+        points: window.GelpiyoRanking.formatRankPoints(row.best)
+    };
+}
+// 名前はほかの人が付けたものなので、必ず textContent で文字として入れます。
+function rankingRow(row, myPlayerId) {
+    const isMine = myPlayerId !== null && myPlayerId !== undefined && row.playerId === myPlayerId;
+    const texts = rankingRowTexts(row, isMine);
+    const item = document.createElement('li');
+    item.className = isMine ? 'ranking-row is-me' : 'ranking-row';
+    ['rank', 'name', 'points'].forEach(key => {
+        const cell = document.createElement('span');
+        cell.className = `ranking-${key}`;
+        cell.textContent = texts[key];
+        item.appendChild(cell);
+    });
+    return item;
+}
+// rows は窓口の上位の表の形 [{rank, playerId, name, title, frame, best}] です。
+function renderRanking(rows, myPlayerId) {
+    rankingList.replaceChildren();
+    if (!Array.isArray(rows) || rows.length === 0) {
+        const empty = document.createElement('li');
+        empty.className = 'ranking-empty';
+        empty.textContent = 'まだ記録がありません。';
+        rankingList.appendChild(empty);
+        return;
+    }
+    rows.forEach(row => rankingList.appendChild(rankingRow(row, myPlayerId)));
+}
+let rankingRequest = 0;
+function prepareRankingScreen() {
+    renderPlayerName();
+    rankingRequest += 1;
+    rankingList.replaceChildren();
+    setStatusLine(rankingStatus, onlineText('ranking.loading'));
+    setStatusLine(rankingMyBest, '');
+    rankingOverlay.querySelector('.modal-card').scrollTop = 0;
+    refreshRanking(rankingRequest);
+}
+async function refreshRanking(request) {
+    try {
+        const view = await online.loadRanking();
+        if (currentScreen === 'ranking' && request === rankingRequest)
+            renderRankingView(view);
+    } catch (error) {
+        console.error('ランキングを読み込む処理で失敗しました。', error);
+    }
+}
+function renderRankingView(view) {
+    renderPlayerName();
+    if (view.rows === null)
+        rankingList.replaceChildren();
+    else
+        renderRanking(view.rows, view.playerId);
+    setStatusLine(rankingStatus, view.status);
+    setStatusLine(rankingMyBest, view.myBest);
+}
+let accountMode = 'normal';
+let accountRequest = 0;
+let gatedGameConfig = null;
+let codeReissueArmed = false;
+// 出し直した後に端末への保存が失敗しても、画面を閉じるまでは新しいコードを出し、「コピー」もそれを使います。
+let shownTransferCode = null;
+let recoverArmed = false;
+function isAccountRequest(request) {
+    return currentScreen === 'account' && request === accountRequest;
+}
+function prepareAccountScreen() {
+    accountRequest += 1;
+    accountNameInput.value = window.GelpiyoAccount.readAccount().name;
+    showAccountError('');
+    setStatusLine(accountStatus, '');
+    setAccountBusy(false);
+    renderAccountMode();
+    renderTransferCode();
+    recoverCodeInput.value = '';
+    disarmRecover();
+}
+function renderAccountMode() {
+    const gate = accountMode === 'gate';
+    accountGateText.hidden = !gate;
+    accountGateBackButton.hidden = !gate;
+    accountGateSkipButton.hidden = !gate;
+    accountCloseButton.hidden = gate;
+    recoverForm.hidden = gate;
+}
+function renderTransferCode() {
+    const account = window.GelpiyoAccount.readAccount();
+    accountCodeSection.hidden = accountMode === 'gate' || !window.GelpiyoAccount.isRegistered(account);
+    shownTransferCode = account.transferCode;
+    accountCodeValue.textContent = shownTransferCode || onlineText('code.none');
+    disarmReissue();
+    setStatusLine(accountCodeNotice, '');
+}
+function setAccountBusy(busy) {
+    [accountNameInput, accountSubmitButton, accountCloseButton, accountGateBackButton, accountGateSkipButton,
+        accountCodeCopyButton, accountCodeReissueButton, recoverCodeInput, recoverButton].forEach(control => {
+        control.disabled = busy;
+    });
+}
+function showAccountError(message) {
+    accountNameError.textContent = message;
+    accountNameError.hidden = message === '';
+}
+function submitAccountName(event) {
+    event.preventDefault();
+    const checked = window.GelpiyoAccount.validateName(accountNameInput.value);
+    const saved = checked.ok ? window.GelpiyoAccount.writeAccountName(checked.name) : checked;
+    if (!saved.ok) {
+        showAccountError(saved.message);
+        return;
+    }
+    showAccountError('');
+    renderPlayerName();
+    if (accountMode === 'gate') {
+        startGatedGame();
+        return;
+    }
+    finishAccountSubmit();
+}
+function finishAccountSubmit() {
+    if (online.isOffline() || !window.GelpiyoAccount.needsSync(window.GelpiyoAccount.readAccount())) {
+        showScreen(accountReturnScreen);
+        return;
+    }
+    syncFromAccountScreen(accountRequest);
+}
+async function syncFromAccountScreen(request) {
+    setStatusLine(accountStatus, onlineText('account.sending'));
+    setAccountBusy(true);
+    try {
+        const result = await syncCurrentName();
+        renderPlayerName();
+        if (isAccountRequest(request))
+            showSyncResult(result);
+    } catch (error) {
+        console.error('名前をサーバーに送る処理で失敗しました。', error);
+        if (isAccountRequest(request))
+            setAccountBusy(false);
+    }
+}
+// 裏で走っていた前の名前の同期に相乗りしたときは、終わってから今の名前でもう一度同期します。
+async function syncCurrentName() {
+    const first = await online.syncAccount();
+    if (!first.ok || !window.GelpiyoAccount.needsSync(window.GelpiyoAccount.readAccount()))
+        return first;
+    const second = await online.syncAccount();
+    return first.registered === true && second.ok ? first : second;
+}
+function showSyncResult(result) {
+    setAccountBusy(false);
+    if (result.ok && result.registered) {
+        renderTransferCode();
+        setStatusLine(accountStatus, onlineText('account.registered'));
+        return;
+    }
+    if (result.ok) {
+        showScreen(accountReturnScreen);
+        return;
+    }
+    setStatusLine(accountStatus, onlineText('account.syncFailed', { reason: result.message }));
+}
+async function copyTransferCode(request) {
+    const copied = await writeClipboard(shownTransferCode);
+    if (isAccountRequest(request))
+        setStatusLine(accountCodeNotice, onlineText(copied ? 'code.copied' : 'code.copyFailed'));
+}
+async function writeClipboard(text) {
+    const clipboard = window.navigator && window.navigator.clipboard;
+    if (typeof text !== 'string' || !clipboard || typeof clipboard.writeText !== 'function')
+        return false;
+    try {
+        await clipboard.writeText(text);
+        return true;
+    } catch (error) {
+        return false;
+    }
+}
+function disarmReissue() {
+    codeReissueArmed = false;
+    accountCodeReissueButton.textContent = onlineText('code.reissue');
+}
+function onReissueClick() {
+    if (codeReissueArmed) {
+        reissueFromAccountScreen(accountRequest);
+        return;
+    }
+    codeReissueArmed = true;
+    accountCodeReissueButton.textContent = onlineText('code.reissueConfirm');
+    setStatusLine(accountCodeNotice, onlineText('code.reissueWarn'));
+}
+async function reissueFromAccountScreen(request) {
+    setAccountBusy(true);
+    setStatusLine(accountCodeNotice, onlineText('account.sending'));
+    try {
+        const result = await online.reissueCode();
+        if (isAccountRequest(request))
+            showReissueResult(result);
+    } catch (error) {
+        console.error('引き継ぎコードを出し直す処理で失敗しました。', error);
+        if (isAccountRequest(request))
+            setAccountBusy(false);
+    }
+}
+function showReissueResult(result) {
+    setAccountBusy(false);
+    disarmReissue();
+    if (result.code !== null) {
+        shownTransferCode = result.code;
+        accountCodeValue.textContent = shownTransferCode;
+    }
+    setStatusLine(accountCodeNotice, result.message);
+}
+function disarmRecover() {
+    recoverArmed = false;
+    recoverButton.textContent = onlineText('recover.button');
+    setStatusLine(recoverNotice, '');
+}
+function onRecoverSubmit(event) {
+    event.preventDefault();
+    const checked = window.GelpiyoAccount.normalizeTransferCode(recoverCodeInput.value);
+    if (!checked.ok) {
+        disarmRecover();
+        setStatusLine(recoverNotice, checked.message);
+        return;
+    }
+    if (recoverArmed) {
+        recoverFromAccountScreen(checked.code, accountRequest);
+        return;
+    }
+    recoverArmed = true;
+    recoverButton.textContent = onlineText('recover.confirm');
+    setStatusLine(recoverNotice, onlineText('recover.confirmText'));
+}
+async function recoverFromAccountScreen(code, request) {
+    setAccountBusy(true);
+    setStatusLine(recoverNotice, onlineText('account.sending'));
+    try {
+        const result = await online.recover(code);
+        if (result.ok)
+            renderPlayerName();
+        if (isAccountRequest(request))
+            showRecoverResult(result);
+    } catch (error) {
+        console.error('引き継ぎの処理で失敗しました。', error);
+        if (isAccountRequest(request))
+            setAccountBusy(false);
+    }
+}
+function showRecoverResult(result) {
+    setAccountBusy(false);
+    disarmRecover();
+    if (result.ok) {
+        accountNameInput.value = window.GelpiyoAccount.readAccount().name;
+        showAccountError('');
+        setStatusLine(accountStatus, '');
+        recoverCodeInput.value = '';
+        renderTransferCode();
+    }
+    setStatusLine(recoverNotice, result.message);
+}
+// ランキングと名前の画面も、対局の記録と同じく開いた画面へ「閉じる」で戻ります（戻り先は画面ごとに別に持ちます）。
+let rankingReturnScreen = 'title';
+function openRanking(from) {
+    rankingReturnScreen = from;
+    showScreen('ranking');
+}
+let accountReturnScreen = 'title';
+function openAccount(from) {
+    accountReturnScreen = from;
+    accountMode = 'normal';
+    showScreen('account');
+}
+function openAccountGate(config) {
+    gatedGameConfig = config;
+    accountReturnScreen = 'setup';
+    accountMode = 'gate';
+    showScreen('account');
+}
+function cancelAccountGate() {
+    gatedGameConfig = null;
+    showScreen('setup');
+}
+function startGatedGame() {
+    if (gatedGameConfig === null) {
+        showScreen('setup');
+        return;
+    }
+    gameConfig = gatedGameConfig;
+    gatedGameConfig = null;
+    startGameFromConfig();
+}
 function openSetup() {
     showScreen('setup');
+}
+function beginRankingTicket() {
+    gameRanking = isAiMode() ? online.initialTicket() : { ...window.GelpiyoOnline.NO_TICKET };
+    if (isAiMode() && gameRanking.error === null)
+        requestRankingTicket(gameSession);
+}
+async function requestRankingTicket(session) {
+    try {
+        const ticket = await online.startTicket();
+        if (session === gameSession)
+            gameRanking = ticket;
+    } catch (error) {
+        console.error('ランキングの札を取りに行く処理で失敗しました。', error);
+    }
 }
 async function startGameFromConfig() {
     gameSession += 1;
@@ -986,6 +1429,7 @@ async function startGameFromConfig() {
         gameConfig.aiLevel = normalizeAiLevel(gameConfig.aiLevel);
         gameConfig.showGuide = Boolean(gameConfig.showGuide);
         gameStartedAt = Date.now();
+        gameResumed = false;
         if (gameConfig.boardSize === EXTRA_BOARD_SIZE) {
             if (!isExtraReady()) {
                 showScreen('setup');
@@ -994,6 +1438,7 @@ async function startGameFromConfig() {
             }
             activeMap = null;
             gameStarted = true;
+            beginRankingTicket();
             showScreen('game');
             startExtraGame();
             return;
@@ -1024,6 +1469,7 @@ async function startGameFromConfig() {
             board = createInitialBoard();
         }
         gameStarted = true;
+        beginRankingTicket();
         showScreen('game');
         updateUI(activeMap ? `イベント「${activeMap.name}」を読み込みました。` : 'ゲーム開始！ 駒はアップロード画像を使用しています。');
         selectionStatusElement.textContent = '1手で2個の駒を選択してください。';
@@ -1145,6 +1591,7 @@ function endExtraGame() {
     extraGameOver = true;
     extraAiThinking = false;
     extraSelected = [];
+    const playMs = playMsSinceStart();
     const first = rules.scoreOf(extraBoard, FIRST);
     const second = rules.scoreOf(extraBoard, SECOND);
     let summary = '引き分け';
@@ -1158,9 +1605,9 @@ function endExtraGame() {
         ['先攻の平面陣 / 立方陣', `${first.planes} / ${first.cubes}`],
         ['後攻の平面陣 / 立方陣', `${second.planes} / ${second.cubes}`],
         ['総合判定（駒＋面×3＋立×9）', `${first.total} vs ${second.total}`],
-        ['対局時間', elapsedSinceStart()],
+        ['対局時間', elapsedSinceStart(playMs)],
         ['対戦設定', getConfigLabel()]
-    ]);
+    ], challengeResultFor(extraScore(first), extraScore(second), playMs));
 }
 function resolveExtraPasses(messages=[]) {
     const rules = window.Extra3DRules;
@@ -1280,6 +1727,9 @@ function readSavedGame() {
     } catch (error) {
         return null;
     }
+    return validateSavedGame(data);
+}
+function validateSavedGame(data) {
     if (!data || data.version !== SAVE_VERSION || !data.config)
         return null;
     if (data.mode === EXTRA_BOARD_SIZE)
@@ -1332,7 +1782,8 @@ function suspendGame() {
         savedAt: Date.now(),
         elapsedMs: Date.now() - gameStartedAt,
         config: { ...gameConfig },
-        mode: extra ? EXTRA_BOARD_SIZE : '2d'
+        mode: extra ? EXTRA_BOARD_SIZE : '2d',
+        ranking: { ...gameRanking }
     };
     if (extra) {
         data.extraBoard = Array.from(extraBoard);
@@ -1361,6 +1812,7 @@ function suspendGame() {
     extraSelected = [];
     if (window.Extra3DView && window.Extra3DView.ready)
         window.Extra3DView.stop();
+    online.backup();
     showScreen('title');
 }
 function resumeSavedGame() {
@@ -1382,6 +1834,8 @@ function resumeSavedGame() {
     };
     gameStartedAt = Date.now() - Math.max(0, Number(data.elapsedMs) || 0);
     gameStarted = true;
+    gameResumed = true;
+    gameRanking = window.GelpiyoOnline.normalizeTicket(data.ranking);
     clearSavedGame();
     const message = '中断したゲームを再開しました。';
     if (data.mode === EXTRA_BOARD_SIZE) {
@@ -1422,6 +1876,82 @@ function resumeSavedGame() {
     selectionStatusElement.textContent = '1手で2個の駒を選択してください。';
     scheduleAiTurn();
 }
+// --- セーブの控え ---------------------------------------------------------
+// アカウントは控えに入れません。
+function collectSaveSnapshot() {
+    const account = window.GelpiyoAccount;
+    return account.buildSaveSnapshot({
+        platform: SNAPSHOT_PLATFORM,
+        createdAt: Date.now(),
+        theme: readStoredTheme(),
+        history: readResultHistory().map(account.webHistoryToCommon),
+        suspendedGame: readSavedGame()
+    });
+}
+function replaceStoredItem(key, value) {
+    if (value === null)
+        localStorage.removeItem(key);
+    else
+        localStorage.setItem(key, value);
+}
+// 読み戻しは置き換えなので、控えに無いテーマ・記録・中断データは端末からも消します。
+function snapshotStorageEntries(theme, history, game) {
+    return [
+        [THEME_STORAGE_KEY, theme],
+        [HISTORY_STORAGE_KEY, history.length > 0 ? JSON.stringify(history) : null],
+        [SAVE_STORAGE_KEY, game ? JSON.stringify(game) : null]
+    ];
+}
+// 途中で失敗したら書いた分を元に戻し、端末のデータを半分だけ置き換えた状態にしません。
+function replaceStoredItems(entries) {
+    const previous = entries.map(([key]) => [key, localStorage.getItem(key)]);
+    let writtenCount = 0;
+    try {
+        entries.forEach(([key, value]) => {
+            replaceStoredItem(key, value);
+            writtenCount += 1;
+        });
+    } catch (error) {
+        rollbackStoredItems(previous.slice(0, writtenCount));
+        throw error;
+    }
+    return previous;
+}
+function rollbackStoredItems(entries) {
+    entries.forEach(([key, value]) => {
+        try {
+            replaceStoredItem(key, value);
+        } catch (error) {
+            console.error(`localStorage（${key}）を読み戻し前の値に戻せませんでした。`, error);
+        }
+    });
+}
+// null のときは、書いた分を replaceStoredItems が元に戻し済みです。
+function writeSnapshotItems(entries) {
+    try {
+        return replaceStoredItems(entries);
+    } catch (error) {
+        console.error(`localStorage（${THEME_STORAGE_KEY} / ${HISTORY_STORAGE_KEY} / ${SAVE_STORAGE_KEY}）に控えを書き込めませんでした。`, error);
+        return null;
+    }
+}
+function restoreSaveSnapshot(snapshot) {
+    const parsed = window.GelpiyoAccount.parseSaveSnapshot(snapshot, SNAPSHOT_PLATFORM);
+    if (!parsed.ok)
+        return { ok: false, message: parsed.message, suspendedDropped: false, suspendedRestored: false };
+    const game = parsed.suspended ? validateSavedGame(parsed.suspended.game) : null;
+    const previous = writeSnapshotItems(snapshotStorageEntries(parsed.theme, parsed.history.map(window.GelpiyoAccount.commonHistoryToWeb), game));
+    if (previous === null)
+        return { ok: false, message: SNAPSHOT_RESTORE_FAILED, suspendedDropped: false, suspendedRestored: false };
+    applyTheme(parsed.theme);
+    updateTitleResume();
+    return { ok: true, message: '', suspendedDropped: parsed.suspendedDropped, suspendedRestored: game !== null, undo: () => undoSnapshotRestore(previous) };
+}
+function undoSnapshotRestore(previous) {
+    rollbackStoredItems(previous);
+    applyTheme(readStoredTheme());
+    updateTitleResume();
+}
 setupForm.addEventListener('submit', (event) => {
     event.preventDefault();
     const boardKind = currentSetupBoardKind();
@@ -1430,8 +1960,19 @@ setupForm.addEventListener('submit', (event) => {
         updateSetupFormVisibility();
         return;
     }
+    const config = readSetupConfig(boardKind);
+    if (shouldOfferName(config)) {
+        openAccountGate(config);
+        return;
+    }
+    gameConfig = config;
+    startGameFromConfig();
+}
+);
+// 名前の画面で「戻る」と対局中の設定が残るよう、ここでは gameConfig に入れずに返します。
+function readSetupConfig(boardKind) {
     const formData = new FormData(setupForm);
-    gameConfig = {
+    return {
         humanColor: formData.get('playerColor') === 'white' ? SECOND : FIRST,
         opponent: formData.get('opponent') === 'human' ? 'human' : 'ai',
         aiLevel: normalizeAiLevel(formData.get('aiLevel')),
@@ -1439,9 +1980,10 @@ setupForm.addEventListener('submit', (event) => {
         eventMapIndex: normalizeEventMapIndex(eventMapSelect.value),
         showGuide: normalizeGuide(formData.get('showGuide'))
     };
-    startGameFromConfig();
 }
-);
+function shouldOfferName(config) {
+    return config.opponent === 'ai' && window.GelpiyoAccount.readAccount().name === '';
+}
 setupForm.querySelectorAll('input[name="opponent"]').forEach(input => input.addEventListener('change', updateSetupFormVisibility));
 setupForm.querySelectorAll('input[name="boardKind"]').forEach(input => input.addEventListener('change', updateSetupFormVisibility));
 function selectBoardKind(kind) {
@@ -1459,6 +2001,19 @@ openHistoryButton.addEventListener('click', () => openHistory('game'));
 titleHistoryButton.addEventListener('click', () => openHistory('title'));
 resultHistoryButton.addEventListener('click', () => openHistory('result'));
 historyCloseButton.addEventListener('click', () => showScreen(historyReturnScreen));
+titleRankingButton.addEventListener('click', () => openRanking('title'));
+resultRankingButton.addEventListener('click', () => openRanking('result'));
+rankingCloseButton.addEventListener('click', () => showScreen(rankingReturnScreen));
+titleNameButton.addEventListener('click', () => openAccount('title'));
+rankingNameButton.addEventListener('click', () => openAccount('ranking'));
+accountCloseButton.addEventListener('click', () => showScreen(accountReturnScreen));
+accountForm.addEventListener('submit', submitAccountName);
+accountGateBackButton.addEventListener('click', cancelAccountGate);
+accountGateSkipButton.addEventListener('click', startGatedGame);
+accountCodeCopyButton.addEventListener('click', () => copyTransferCode(accountRequest));
+accountCodeReissueButton.addEventListener('click', onReissueClick);
+recoverForm.addEventListener('submit', onRecoverSubmit);
+recoverCodeInput.addEventListener('input', disarmRecover);
 titleResumeButton.addEventListener('click', resumeSavedGame);
 axisSideToggle.addEventListener('click', toggleAxisSide);
 clearSelectionButton.addEventListener('click', () => {

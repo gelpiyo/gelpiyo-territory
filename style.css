@@ -1014,7 +1014,8 @@ legend {
     margin-bottom: 0;
 }
 
-.history-empty {
+.history-empty,
+.ranking-empty {
     margin: 0;
     padding: 14px;
     border-radius: 12px;
@@ -1024,6 +1025,219 @@ legend {
     font-size: .86rem;
     line-height: 1.6;
     text-align: center;
+}
+
+/* --- プレイヤー名とランキング ----------------------------------------- */
+
+.title-player {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 6px 10px;
+    max-width: 100%;
+}
+
+.title-player-name {
+    min-width: 0;
+    color: var(--muted);
+    font-size: .78rem;
+    overflow-wrap: anywhere;
+}
+
+.account-form {
+    display: grid;
+    gap: 10px;
+}
+
+.text-input {
+    width: 100%;
+    min-height: 44px;
+    padding: 9px 12px;
+    font: inherit;
+    font-size: 1rem;
+    color: var(--text);
+    background: var(--surface-soft);
+    border: 1px solid var(--border-strong);
+    border-radius: 10px;
+}
+
+.text-input::placeholder {
+    color: var(--muted);
+}
+
+.text-input:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+}
+
+.form-error {
+    margin: 0;
+    padding: 8px 10px;
+    border-radius: 9px;
+    background: var(--first-soft);
+    border: 1px solid var(--first);
+    color: var(--text);
+    font-size: .8rem;
+    line-height: 1.5;
+}
+
+.account-note,
+.ranking-status,
+.result-ranking-note {
+    color: var(--muted);
+    font-size: .78rem;
+    line-height: 1.5;
+}
+
+.account-note {
+    margin: 0 0 6px;
+}
+
+.account-gate-text {
+    margin: -6px 0 14px;
+    padding: 8px 10px;
+    border-radius: 9px;
+    background: var(--accent-soft);
+    border: 1px solid var(--accent);
+    color: var(--text);
+    font-size: .8rem;
+    line-height: 1.5;
+}
+
+.account-status {
+    margin: 0;
+    color: var(--text);
+    font-size: .8rem;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+
+.account-section {
+    display: grid;
+    gap: 8px;
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+}
+
+.account-section[hidden] {
+    display: none;
+}
+
+.account-section .account-note {
+    margin: 0;
+}
+
+.account-section-heading {
+    margin: 0;
+    font-size: .92rem;
+}
+
+.account-code-value {
+    margin: 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 1.1rem;
+    font-weight: 700;
+    letter-spacing: .06em;
+    overflow-wrap: anywhere;
+}
+
+.account-section-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.ranking-player {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 10px;
+    margin-bottom: 10px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    background: var(--surface-soft);
+    border: 1px solid var(--border);
+    font-size: .84rem;
+    line-height: 1.5;
+}
+
+.ranking-player-text {
+    flex: 1 1 12em;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.ranking-my-best {
+    flex: 1 0 100%;
+    margin: 0;
+    color: var(--muted);
+    font-size: .8rem;
+    overflow-wrap: anywhere;
+}
+
+.ranking-status {
+    margin: 0 0 10px;
+}
+
+.ranking-list {
+    display: grid;
+    gap: 7px;
+    margin: 0 0 16px;
+    padding: 0;
+    list-style: none;
+}
+
+.ranking-row {
+    display: grid;
+    grid-template-columns: minmax(3.4em, auto) minmax(0,1fr) auto;
+    align-items: baseline;
+    gap: 10px;
+    padding: 9px 12px;
+    border-radius: 12px;
+    background: var(--surface-soft);
+    border: 1px solid var(--border);
+    font-size: .84rem;
+}
+
+.ranking-row.is-me {
+    background: var(--accent-soft);
+    border-color: var(--accent);
+}
+
+.ranking-rank,
+.ranking-points {
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.ranking-rank {
+    font-weight: 700;
+}
+
+.ranking-name {
+    min-width: 0;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+}
+
+.ranking-points {
+    font-weight: 600;
+    text-align: right;
+}
+
+.result-ranking-note {
+    margin: -6px 0 16px;
+}
+
+.result-ranking-status {
+    margin: -10px 0 16px;
+    color: var(--text);
+    font-size: .78rem;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
 }
 
 /* --- Wide screens: side panel keeps full height for the board ---------- */

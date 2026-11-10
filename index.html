@@ -21,7 +21,7 @@
       <div class="bar-head">
         <div class="bar-title">
           <h1>ゲルぴよ陣取りゲーム</h1>
-          <p class="subtitle">Ver 0.4 ⓒ Taica Corporation</p>
+          <p class="subtitle">Ver 0.45 Ⓒ Taica Corporation</p>
         </div>
         <button id="theme-button" class="ghost tiny" type="button">ライト</button>
       </div>
@@ -126,6 +126,11 @@
         <button id="title-start-button" class="primary" type="button">はじめる</button>
         <button id="title-skip-button" class="ghost tiny" type="button">操作説明をとばして設定へ</button>
         <button id="title-history-button" class="ghost tiny" type="button">対局の記録</button>
+        <button id="title-ranking-button" class="ghost tiny" type="button">ランキング</button>
+        <div class="title-player">
+          <span id="title-player-name" class="title-player-name">プレイヤー名：未登録</span>
+          <button id="title-name-button" class="ghost tiny" type="button">名前を決める</button>
+        </div>
       </div>
     </div>
   </div>
@@ -280,8 +285,11 @@
       <h2 id="result-title">対局結果</h2>
       <p id="result-summary" class="result-summary">ゲーム終了</p>
       <div id="result-detail" class="result-detail">-</div>
+      <p id="result-ranking-note" class="result-ranking-note"></p>
+      <p id="result-ranking-status" class="result-ranking-status" role="status" aria-live="polite" hidden></p>
       <div class="result-actions">
         <button id="result-history-button" class="ghost" type="button">対局の記録</button>
+        <button id="result-ranking-button" class="ghost" type="button">ランキング</button>
         <button id="result-setup-button" class="ghost" type="button">設定を変更する</button>
         <button id="result-restart-button" class="primary" type="button">同じ設定で再戦</button>
       </div>
@@ -299,9 +307,69 @@
     </div>
   </div>
 
+  <div id="account-overlay" class="overlay hidden" aria-modal="true" role="dialog" aria-labelledby="account-title">
+    <div class="modal-card account-card">
+      <h2 id="account-title">プレイヤー名</h2>
+      <p class="setup-text">ランキングに表示する名前です。1〜20文字で、あとから変えられます。ほかの人と同じ名前でもかまいません。</p>
+      <p id="account-gate-text" class="account-gate-text" hidden>ランキングに参加するには、名前を決めてから始めてください。決めずに始めることもできます（その対局はランキングに送りません）。</p>
+      <form id="account-form" class="account-form" novalidate>
+        <input id="account-name-input" class="text-input" type="text" name="playerName" placeholder="例：ぴよ太" autocomplete="nickname" aria-labelledby="account-title" aria-describedby="account-name-error account-status" />
+        <p id="account-name-error" class="form-error" role="alert" hidden></p>
+        <p id="account-status" class="account-status" role="status" aria-live="polite" hidden></p>
+        <div class="setup-actions">
+          <button id="account-gate-back-button" class="ghost" type="button" hidden>戻る</button>
+          <button id="account-gate-skip-button" class="ghost" type="button" hidden>決めずに始める</button>
+          <button id="account-close-button" class="ghost" type="button">閉じる</button>
+          <button id="account-submit-button" class="primary" type="submit">決定</button>
+        </div>
+      </form>
+      <section id="account-code-section" class="account-section" aria-labelledby="account-code-heading" hidden>
+        <h3 id="account-code-heading" class="account-section-heading">引き継ぎコード</h3>
+        <p id="account-code-value" class="account-code-value">（ありません）</p>
+        <p id="account-code-help" class="account-note">機種変更やアプリの入れ直しのときに、このコードで記録を引き継げます。控えておいてください。</p>
+        <div class="account-section-actions">
+          <button id="account-code-copy-button" class="ghost" type="button">コピー</button>
+          <button id="account-code-reissue-button" class="ghost" type="button">出し直す</button>
+        </div>
+        <p id="account-code-notice" class="account-status" role="status" aria-live="polite" hidden></p>
+      </section>
+      <form id="recover-form" class="account-section" aria-labelledby="recover-heading" novalidate>
+        <h3 id="recover-heading" class="account-section-heading">ほかの端末から引き継ぐ</h3>
+        <p id="recover-help" class="account-note">ゲルぴよ陣取りで控えた引き継ぎコードを入れてください。引き継ぐと、前の端末ではランキングに参加できなくなります。この端末の対局の記録・中断中の対局・テーマは、引き継いだ控えで置き換わります。</p>
+        <input id="recover-code-input" class="text-input" type="text" name="transferCode" placeholder="XXXX-XXXX-XXXX" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-labelledby="recover-heading" aria-describedby="recover-notice" />
+        <div class="account-section-actions">
+          <button id="recover-button" class="ghost" type="submit">引き継ぐ</button>
+        </div>
+        <p id="recover-notice" class="account-status" role="status" aria-live="polite" hidden></p>
+      </form>
+    </div>
+  </div>
+
+  <div id="ranking-overlay" class="overlay hidden" aria-modal="true" role="dialog" aria-labelledby="ranking-title">
+    <div class="modal-card ranking-card">
+      <h2 id="ranking-title">ランキング</h2>
+      <p class="setup-text">AIとの対局で勝った記録を、すべての盤面をまとめて比べます。ランキング点は「得点 ×（3,600 − 対局の秒数）× AIの強さ（弱い1・普通2・強い3）」で、高い順に並びます。60分以上かかった対局は対象外です。</p>
+      <div id="ranking-player" class="ranking-player">
+        <span id="ranking-player-text" class="ranking-player-text">名前が未登録です。ランキングに参加するには名前を決めてください。</span>
+        <button id="ranking-name-button" class="ghost tiny" type="button">名前を決める</button>
+        <p id="ranking-my-best" class="ranking-my-best" hidden></p>
+      </div>
+      <p id="ranking-status" class="ranking-status" role="status" aria-live="polite" hidden></p>
+      <ol id="ranking-list" class="ranking-list"></ol>
+      <div class="setup-actions">
+        <button id="ranking-close-button" class="primary" type="button">閉じる</button>
+      </div>
+    </div>
+  </div>
+
   <script src="map.js"></script>
   <script src="extra-rules.js"></script>
   <script src="gelpyto-model.js"></script>
+  <script src="ranking.js"></script>
+  <script src="account.js"></script>
+  <script src="server-config.js"></script>
+  <script src="server-api.js"></script>
+  <script src="online.js"></script>
   <script src="script.js"></script>
   <script type="module" src="extra3d.js"></script>
  
